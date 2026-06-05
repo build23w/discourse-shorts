@@ -1,12 +1,10 @@
 # frozen_string_literal: true
 # name: discourse-shorts
 # about: Short-form video library for the community feed. Server-stored YouTube short IDs + LF-produced uploaded videos, with moderation, member submissions, persisted like/dislike + watch metrics, $RENO payouts, a comment->topic system, and scheduled auto-ingest from the YouTube Data API.
-# version: 0.2.0
+# version: 0.2.1
 # authors: LF Builders
 
 enabled_site_setting :shorts_enabled
-
-register_post_custom_field_type("discourse_short_id", :integer) if respond_to?(:register_post_custom_field_type)
 
 after_initialize do
   module ::DiscourseShorts
