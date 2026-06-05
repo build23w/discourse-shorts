@@ -40,6 +40,8 @@ after_initialize do
     post   "/shorts.json"          => "discourse_shorts/shorts#submit"
     post   "/shorts/:id/react"     => "discourse_shorts/shorts#react"
     post   "/shorts/:id/watch"     => "discourse_shorts/shorts#watch"
+    post   "/shorts/:id/share"     => "discourse_shorts/shorts#share"
+    post   "/shorts/:id/share.json" => "discourse_shorts/shorts#share"
     get    "/shorts/:id/comments"      => "discourse_shorts/shorts#comments_index"
     get    "/shorts/:id/comments.json" => "discourse_shorts/shorts#comments_index"
     post   "/shorts/:id/comments"      => "discourse_shorts/shorts#comments_create"

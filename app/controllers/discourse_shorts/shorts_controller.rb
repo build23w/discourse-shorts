@@ -81,6 +81,14 @@ module DiscourseShorts
       render json: { ok: true }
     end
 
+    # POST /shorts/:id/share -- counts a share so the short is kept (any
+    # interaction makes it permanent). No login required (anon can share).
+    def share
+      s = Short.find_by(id: params[:id]) or raise Discourse::NotFound
+      Short.where(id: s.id).update_all("shares = COALESCE(shares,0) + 1")
+      render json: { ok: true }
+    end
+
     # GET /shorts/:id/comments.json
     def comments_index
       raise Discourse::NotFound unless SiteSetting.shorts_comments_enabled
@@ -156,7 +164,7 @@ module DiscourseShorts
         id: s.id, video_id: s.video_id, provider: s.provider,
         video_url: s.video_url, upload_ref: s.upload_ref, poster_url: s.poster_url,
         title: s.title, tags: s.tag_list,
-        likes: s.likes, dislikes: s.dislikes, views: s.views, my_reaction: my,
+        likes: s.likes, dislikes: s.dislikes, views: s.views, shares: s.try(:shares).to_i, my_reaction: my,
         source: s.source, owned: s.source == "owned", priority: s.priority.to_i,
         comment_count: s.comment_count.to_i,
         topic_id: s.topic_id,
