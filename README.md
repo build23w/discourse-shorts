@@ -46,3 +46,13 @@ rail, the in-feed shorts, and the full-screen vertical player.
   the browser.
 - To seed the library from the theme's current 121 hardcoded IDs, submit them
   (staff) or insert directly; after that the theme auto-switches to the DB list.
+
+## v0.2.0 — LF-produced uploads, owner attribution, $RENO payouts, comments
+
+- **provider="upload"**: shorts can now be LF-hosted mp4s (Discourse uploads) in addition to YouTube. New columns: `video_url`, `upload_ref` (upload://), `poster_url`, `topic_id`, `comment_count`, `priority`.
+- **Owner attribution**: each short serializes an `owner` block (`username`, `avatar_template`, `path` → `/u/<username>`). The theme renders the avatar; clicking it opens the profile.
+- **Algorithmic precedence (gentle)**: `priority` adds a small head-start in the index ordering `(likes - dislikes + priority)`; owned LF videos seed at `shorts_owned_priority` (default 10). Not a top-lock — real engagement overtakes it.
+- **$RENO payouts**: a NEW like pays the short's author (mirrors post-upvote rewards) via `DiscourseCoinEngine.credit_score` + MessageBus toast. Settings: `shorts_reward_enabled`, `shorts_like_reward_amount` (2), `shorts_reward_min_trust_level` (1), daily caps per-short (50) / per-author (200). Self-likes, owned videos, and staff authors never pay; `rewarded` flag prevents double-pay.
+- **Comment → topic system**: `GET/POST /shorts/:id/comments.json`. The first comment auto-creates a real Discourse topic (video embedded in the OP) in the Shorts category (`shorts_comment_category_id`, falls back to the `shorts` category slug); every comment is a normal reply living in that topic and is pulled back into the short's comment list. Login required; rate-limited 12/hr.
+- **Sign-in gating**: react/watch/comment endpoints require login server-side; the theme redirects anon users to `/login` on any short interaction.
+- **Owned seeder**: `lib/discourse_shorts/owned_seeder.rb` inserts LF's 6 uploaded videos once (flag-guarded), credited to `BuildersLTD`.

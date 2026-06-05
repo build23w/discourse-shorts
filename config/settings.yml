@@ -24,3 +24,32 @@ plugins:
     type: list
     list_type: simple
     default: "home renovation shorts|kitchen remodel shorts|bathroom remodel shorts|diy renovation tips shorts|how to renovate shorts"
+  # --- $RENO payouts for shorts engagement (mirrors the post-vote reward model) ---
+  shorts_reward_enabled:
+    default: true
+  shorts_like_reward_amount:
+    default: 2
+    min: 0
+    max: 1000
+  shorts_reward_min_trust_level:
+    default: 1
+    enum: "TrustLevelSetting"
+  shorts_reward_daily_cap_per_short:
+    default: 50
+    min: 0
+    max: 100000
+  shorts_reward_daily_cap_per_author:
+    default: 200
+    min: 0
+    max: 100000
+  # --- comment -> auto-topic ---
+  shorts_comments_enabled:
+    default: true
+    client: true
+  shorts_comment_category_id:
+    default: 0
+  # --- gentle algorithmic precedence for LF-owned videos (source="owned") ---
+  shorts_owned_priority:
+    default: 10
+    min: 0
+    max: 100
