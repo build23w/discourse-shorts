@@ -1,0 +1,26 @@
+plugins:
+  shorts_enabled:
+    default: true
+    client: true
+  shorts_allow_member_submissions:
+    default: true
+    client: true
+  shorts_min_submit_trust_level:
+    default: 3
+    enum: "TrustLevelSetting"
+  shorts_auto_approve_trust_level:
+    default: 3
+    enum: "TrustLevelSetting"
+  shorts_max_library:
+    default: 2000
+    min: 0
+    max: 100000
+  shorts_ingest_enabled:
+    default: false
+  shorts_youtube_api_key:
+    default: ""
+    secret: true
+  shorts_ingest_terms:
+    type: list
+    list_type: simple
+    default: "home renovation shorts|kitchen remodel shorts|bathroom remodel shorts|diy renovation tips shorts|how to renovate shorts"
