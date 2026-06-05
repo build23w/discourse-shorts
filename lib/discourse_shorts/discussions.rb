@@ -25,6 +25,26 @@ module DiscourseShorts
       end
     end
 
+    # Credit the ORIGINAL creator so our authors benefit the most: for YouTube,
+    # name + a subscribe link to their channel; for LF uploads, brand credit.
+    def credit_raw(short)
+      if short.provider == "upload"
+        owner = short.submitted_by_id && ::User.find_by(id: short.submitted_by_id)
+        name = (owner&.name.presence || owner&.username.presence || "LF Builders")
+        return "🎬 An **LF Builders** original by **#{name}**.\n\n"
+      end
+      meta = (DiscourseShorts::Youtube.oembed(short.video_id) rescue nil)
+      return "" unless meta && meta["author_name"].to_s.strip.present?
+      an = meta["author_name"].to_s.strip
+      au = meta["author_url"].to_s.strip
+      if au.present?
+        sub = au + (au.include?("?") ? "&" : "?") + "sub_confirmation=1"
+        "🎬 Original video by **[#{an}](#{au})** — [**Subscribe on YouTube** ▶](#{sub}) to support the creator.\n\n"
+      else
+        "🎬 Original video by **#{an}** on YouTube.\n\n"
+      end
+    end
+
     def build_title(short)
       base = short.title.to_s.strip
       base = "LF Builders short" if base.blank?
@@ -41,6 +61,7 @@ module DiscourseShorts
       cid = category_id
       owner = (short.submitted_by_id && ::User.find_by(id: short.submitted_by_id)) || ::Discourse.system_user
       raw = embed_raw(short) +
+            credit_raw(short) +
             "Watch the short and join the conversation 👇\n\n" \
             "*(This topic was created automatically from a community short.)*"
       pc = ::PostCreator.new(
