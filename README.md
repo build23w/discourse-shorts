@@ -20,7 +20,7 @@ rail, the in-feed shorts, and the full-screen vertical player.
 - **Member submissions**: `POST /shorts` `{url|video_id, title, tags}`. Allowed for **staff always**, plus members at/above `shorts_min_submit_trust_level` when `shorts_allow_member_submissions` is on. The URL/ID is validated via
   YouTube oEmbed (must exist AND be embeddable) and de-duped. Auto-approved for
   users at/above `shorts_auto_approve_trust_level`, else queued `pending`.
-- **Moderation**: `GET/PUT/DELETE /admin/plugins/shorts[/:id]` — list pending,
+- **Moderation**: `GET /shorts/admin/list`, `PUT|DELETE /shorts/admin/:id` — list pending,
   approve / reject / delete.
 - **Engagement persistence**: `POST /shorts/:id/react {dir: up|down|clear}` (one
   per user, toggle) and `POST /shorts/:id/watch {seconds}` (views + watch-time).
