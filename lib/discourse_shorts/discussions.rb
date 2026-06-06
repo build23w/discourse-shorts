@@ -111,7 +111,7 @@ module DiscourseShorts
     def serialize_post(post, topic)
       u = post.user
       excerpt = begin
-        ::PrettyText.excerpt(post.cooked.to_s, 300, keep_emoji_images: false)
+        ::PrettyText.excerpt(post.cooked.to_s, 300, keep_emoji_images: true)
       rescue StandardError
         post.raw.to_s[0, 300]
       end

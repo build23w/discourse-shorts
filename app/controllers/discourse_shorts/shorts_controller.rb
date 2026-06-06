@@ -3,7 +3,7 @@ module DiscourseShorts
   class ShortsController < ::ApplicationController
     requires_plugin ::DiscourseShorts::PLUGIN_NAME
     before_action :ensure_enabled
-    before_action :ensure_logged_in, only: %i[submit react watch comments_create]
+    before_action :ensure_logged_in, only: %i[submit react watch watch_batch comments_create]
     skip_before_action :check_xhr, only: %i[index comments_index]
 
     def index
@@ -19,12 +19,22 @@ module DiscourseShorts
                     .order(Arel.sql("(likes - dislikes + COALESCE(priority,0)) DESC, id DESC"))
                     .limit(limit).to_a
         owners = ::User.where(id: rows.map(&:submitted_by_id).compact.uniq).index_by(&:id)
-        rows.map { |s| serialize_short(s, nil, owners[s.submitted_by_id]) }
+        # comment badge truth = the discussion topic's reply count (covers native
+        # replies + deletions); one batched pluck per cache rebuild.
+        tcounts = ::Topic.where(id: rows.map(&:topic_id).compact).pluck(:id, :posts_count).to_h
+        rows.map do |s|
+          h = serialize_short(s, nil, owners[s.submitted_by_id])
+          h[:comment_count] = [tcounts[s.topic_id].to_i - 1, 0].max if s.topic_id && tcounts.key?(s.topic_id)
+          h
+        end
       end
       if current_user && base.any?
         mine = Reaction.where(user_id: current_user.id, short_id: base.map { |h| h[:id] })
                        .pluck(:short_id, :direction).to_h
         base = base.map { |h| (d = mine[h[:id]]) ? h.merge(my_reaction: d) : h } if mine.any?
+      else
+        # Anon payload is identical for everyone: let browsers/CDN cache it.
+        response.headers["Cache-Control"] = "public, max-age=60"
       end
       render json: { shorts: base }
     end
@@ -53,6 +63,7 @@ module DiscourseShorts
     end
 
     def react
+      RateLimiter.new(current_user, "shorts_react", 60, 1.hour).performed!
       s = Short.find_by(id: params[:id]) or raise Discourse::NotFound
       dir = params[:dir].to_s
       r = Reaction.find_or_initialize_by(short_id: s.id, user_id: current_user.id)
@@ -80,6 +91,8 @@ module DiscourseShorts
       end
 
       render json: { ok: true, likes: s.likes, dislikes: s.dislikes, my: r.direction }
+    rescue RateLimiter::LimitExceeded => e
+      render json: { ok: false, error: "Slow down -- try again in #{e.available_in}s." }, status: 429
     end
 
     def watch
@@ -90,12 +103,45 @@ module DiscourseShorts
       render json: { ok: true }
     end
 
+    # POST /shorts/watch_batch.json { items: [{id:, s:}, ...] }
+    # SCALE: one request per ~8 watched shorts instead of one per view — kills
+    # the highest-volume write path's per-request overhead. Aggregates dupes.
+    def watch_batch
+      RateLimiter.new(current_user, "shorts_watch_batch", 120, 1.hour).performed!
+      raw = params[:items]
+      raw = (JSON.parse(raw) rescue []) if raw.is_a?(String)
+      raw = [] unless raw.is_a?(Array) || raw.is_a?(ActionController::Parameters)
+      agg = {}
+      Array(raw).first(50).each do |it|
+        h = it.respond_to?(:to_unsafe_h) ? it.to_unsafe_h : it
+        next unless h.is_a?(Hash)
+        id = h["id"].to_i
+        next if id <= 0
+        secs = h["s"].to_i
+        secs = 0 if secs.negative? || secs > 3600
+        a = agg[id] ||= { v: 0, s: 0 }
+        a[:v] += 1
+        a[:s] += secs
+      end
+      agg.each do |id, a|
+        Short.where(id: id).update_all(["views = views + ?, watch_seconds = watch_seconds + ?", a[:v], a[:s]])
+      end
+      render json: { ok: true, n: agg.size }
+    rescue RateLimiter::LimitExceeded
+      render json: { ok: false }, status: 429
+    end
+
     # POST /shorts/:id/share -- counts a share so the short is kept (any
     # interaction makes it permanent). No login required (anon can share).
     def share
+      # Anonymous shares allowed, but throttled per-IP: shares make a short
+      # permanent in the recycler, so an unthrottled endpoint = trivial abuse.
+      RateLimiter.new(nil, "shorts_share_#{request.remote_ip}", 20, 1.hour).performed!
       s = Short.find_by(id: params[:id]) or raise Discourse::NotFound
       Short.where(id: s.id).update_all("shares = COALESCE(shares,0) + 1")
       render json: { ok: true }
+    rescue RateLimiter::LimitExceeded
+      render json: { ok: false }, status: 429
     end
 
     # GET /shorts/:id/comments.json
@@ -113,6 +159,7 @@ module DiscourseShorts
       s = Short.find_by(id: params[:id]) or raise Discourse::NotFound
       raw = params[:raw].to_s.strip
       raise Discourse::InvalidParameters.new(:raw) if raw.length < 2
+      return render(json: { ok: false, error: "Comments are capped at 2000 characters." }, status: 422) if raw.length > 2000
       RateLimiter.new(current_user, "shorts_comment", 12, 1.hour).performed!
       result = Discussions.add_comment(s, current_user, raw)
       raise Discourse::InvalidParameters.new(:raw) if result.nil?

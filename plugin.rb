@@ -7,6 +7,23 @@
 enabled_site_setting :shorts_enabled
 
 after_initialize do
+
+  # Keep Short.comment_count in sync with NATIVE topic replies too (not just
+  # overlay-posted comments). Badge accuracy + recycler permanence both depend
+  # on this column.
+  on(:post_created) do |post|
+    begin
+      if post.post_number.to_i > 1 && post.topic_id
+        sh = ::DiscourseShorts::Short.find_by(topic_id: post.topic_id)
+        if sh
+          pc = post.topic&.posts_count || ::Topic.where(id: post.topic_id).pick(:posts_count) || 1
+          sh.update_columns(comment_count: [pc - 1, 0].max)
+        end
+      end
+    rescue StandardError => e
+      Rails.logger.warn("[discourse-shorts] comment_count sync failed: #{e.message}")
+    end
+  end
   module ::DiscourseShorts
     PLUGIN_NAME = "discourse-shorts"
 
@@ -40,6 +57,7 @@ after_initialize do
     post   "/shorts.json"          => "discourse_shorts/shorts#submit"
     post   "/shorts/:id/react"     => "discourse_shorts/shorts#react"
     post   "/shorts/:id/watch"     => "discourse_shorts/shorts#watch"
+    post   "/shorts/watch_batch.json" => "discourse_shorts/shorts#watch_batch"
     post   "/shorts/:id/share"     => "discourse_shorts/shorts#share"
     post   "/shorts/:id/share.json" => "discourse_shorts/shorts#share"
     get    "/shorts/:id/comments"      => "discourse_shorts/shorts#comments_index"
