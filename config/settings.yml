@@ -53,3 +53,11 @@ plugins:
     default: 10
     min: 0
     max: 100
+  # --- the lovely learning engine (per-user journey ordering of /shorts.json) ---
+  shorts_journey_enabled:
+    default: true
+    client: true
+  shorts_complete_seconds:
+    default: 20
+    min: 5
+    max: 600

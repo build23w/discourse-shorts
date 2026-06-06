@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 # name: discourse-shorts
 # about: Short-form video library for the community feed. Server-stored YouTube short IDs + LF-produced uploaded videos, with moderation, member submissions, persisted like/dislike + watch metrics, $RENO payouts, a comment->topic system, and scheduled auto-ingest from the YouTube Data API.
-# version: 0.2.1
+# version: 0.3.1
 # authors: LF Builders
 
 enabled_site_setting :shorts_enabled
@@ -38,6 +38,8 @@ after_initialize do
   # files -- that fights Zeitwerk and silently aborts the rest of after_initialize.
   load File.expand_path("../app/models/discourse_shorts/short.rb", __FILE__)
   load File.expand_path("../app/models/discourse_shorts/reaction.rb", __FILE__)
+  load File.expand_path("../app/models/discourse_shorts/progress.rb", __FILE__)
+  load File.expand_path("../lib/discourse_shorts/journey.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/youtube.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/discussions.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/seeder.rb", __FILE__)

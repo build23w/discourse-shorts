@@ -28,15 +28,30 @@ module DiscourseShorts
           h
         end
       end
+      journey = nil
       if current_user && base.any?
         mine = Reaction.where(user_id: current_user.id, short_id: base.map { |h| h[:id] })
                        .pluck(:short_id, :direction).to_h
         base = base.map { |h| (d = mine[h[:id]]) ? h.merge(my_reaction: d) : h } if mine.any?
+        # The lovely learning engine: re-order the rail per learner (love ->
+        # growth -> discovery) and attach warm journey microcopy. Pure Ruby
+        # over the cached base + two indexed lookups; falls back to the
+        # global order on any error.
+        if SiteSetting.shorts_journey_enabled
+          begin
+            state = Journey.learner_state(current_user, base)
+            base, journey = Journey.curate(base, state, current_user.id)
+          rescue StandardError => e
+            Rails.logger.warn("[discourse-shorts] journey fell back: #{e.class} #{e.message}")
+          end
+        end
       else
         # Anon payload is identical for everyone: let browsers/CDN cache it.
         response.headers["Cache-Control"] = "public, max-age=60"
       end
-      render json: { shorts: base }
+      payload = { shorts: base }
+      payload[:journey] = journey if journey
+      render json: payload
     end
 
     def submit
@@ -100,6 +115,7 @@ module DiscourseShorts
       secs = params[:seconds].to_i
       secs = 0 if secs.negative? || secs > 3600
       Short.where(id: s.id).update_all(["views = views + 1, watch_seconds = watch_seconds + ?", secs])
+      record_progress(current_user.id, s.id, secs)
       render json: { ok: true }
     end
 
@@ -125,6 +141,7 @@ module DiscourseShorts
       end
       agg.each do |id, a|
         Short.where(id: id).update_all(["views = views + ?, watch_seconds = watch_seconds + ?", a[:v], a[:s]])
+        record_progress(current_user.id, id, a[:s], a[:v])
       end
       render json: { ok: true, n: agg.size }
     rescue RateLimiter::LimitExceeded
@@ -170,6 +187,19 @@ module DiscourseShorts
     end
 
     private
+
+    # Per-user watch attribution — the learner's memory. Completion flips at
+    # shorts_complete_seconds of cumulative watch time and never unflips.
+    def record_progress(user_id, short_id, secs, watches = 1)
+      return if user_id.to_i <= 0
+      row = Progress.find_or_initialize_by(user_id: user_id, short_id: short_id)
+      row.seconds = row.seconds.to_i + secs.to_i
+      row.watches = row.watches.to_i + watches.to_i
+      row.completed ||= row.seconds >= [SiteSetting.shorts_complete_seconds.to_i, 5].max
+      row.save!
+    rescue StandardError => e
+      Rails.logger.warn("[discourse-shorts] progress write failed: #{e.class} #{e.message}")
+    end
 
     def ensure_enabled
       raise Discourse::NotFound unless SiteSetting.shorts_enabled
