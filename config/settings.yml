@@ -23,7 +23,7 @@ plugins:
   shorts_ingest_terms:
     type: list
     list_type: simple
-    default: "home renovation shorts|kitchen remodel shorts|bathroom remodel shorts|diy renovation tips shorts|how to renovate shorts"
+    default: "home renovation shorts|kitchen remodel shorts|bathroom remodel shorts|diy renovation tips shorts|how to drywall shorts|plumbing tips shorts|tile installation shorts|painting tips shorts|flooring install shorts|deck building shorts|kitchen cabinet install shorts|countertop install shorts|electrical tips homeowner shorts|framing tips shorts|concrete finishing shorts|interlock paver install shorts|renovation mistakes shorts|before after renovation shorts|caulking grout tips shorts|basement waterproofing shorts|window replacement shorts|door installation shorts|roofing repair shorts|siding installation shorts|fence building shorts|insulation install shorts|smart home upgrades shorts|trim carpentry shorts|landscaping ideas shorts|gutter cleaning shorts|heat pump installation shorts|stair renovation shorts|power tool tips shorts|garage organization shorts"
   # --- $RENO payouts for shorts engagement (mirrors the post-vote reward model) ---
   shorts_reward_enabled:
     default: true
