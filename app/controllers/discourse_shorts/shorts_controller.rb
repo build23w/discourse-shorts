@@ -9,15 +9,24 @@ module DiscourseShorts
     def index
       limit = params[:limit].to_i
       limit = 200 if limit <= 0 || limit > 500
-      # Gentle precedence: owned/promoted videos carry a small `priority` nudge
-      # (a head start in net likes) so they stay in rotation without locking the
-      # top. Real engagement on other shorts overtakes the nudge over time.
-      rows = Short.where(status: "approved")
-                  .order(Arel.sql("(likes - dislikes + COALESCE(priority,0)) DESC, id DESC"))
-                  .limit(limit).to_a
-      mine = current_user ? Reaction.where(user_id: current_user.id, short_id: rows.map(&:id)).pluck(:short_id, :direction).to_h : {}
-      owners = ::User.where(id: rows.map(&:submitted_by_id).compact.uniq).index_by(&:id)
-      render json: { shorts: rows.map { |s| serialize_short(s, mine[s.id], owners[s.submitted_by_id]) } }
+      # SCALE: query + serialize + owner lookups for the whole library are identical
+      # for every viewer, so cache that base ~60s. Per-user my_reaction is merged in
+      # afterward with one cheap pluck -> N concurrent feed loads become 1 heavy
+      # query / 60s instead of N. Gentle precedence: owned videos carry a small
+      # `priority` nudge so they stay in rotation without locking the top.
+      base = Discourse.cache.fetch("shorts_index_base_v2_#{limit}", expires_in: 60.seconds) do
+        rows = Short.where(status: "approved")
+                    .order(Arel.sql("(likes - dislikes + COALESCE(priority,0)) DESC, id DESC"))
+                    .limit(limit).to_a
+        owners = ::User.where(id: rows.map(&:submitted_by_id).compact.uniq).index_by(&:id)
+        rows.map { |s| serialize_short(s, nil, owners[s.submitted_by_id]) }
+      end
+      if current_user && base.any?
+        mine = Reaction.where(user_id: current_user.id, short_id: base.map { |h| h[:id] })
+                       .pluck(:short_id, :direction).to_h
+        base = base.map { |h| (d = mine[h[:id]]) ? h.merge(my_reaction: d) : h } if mine.any?
+      end
+      render json: { shorts: base }
     end
 
     def submit
