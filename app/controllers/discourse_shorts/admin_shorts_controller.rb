@@ -15,7 +15,18 @@ module DiscourseShorts
       s = Short.find(params[:id])
       st = params[:status].to_s
       s.update!(status: st) if %w[approved pending rejected].include?(st)
-      render json: { ok: true, status: s.status }
+      # Allow swapping media URLs (e.g. replacing a non-faststart MP4 with a
+      # remuxed copy). Admin-only; restricted to our own upload store so the
+      # endpoint can't be pointed at arbitrary hosts.
+      media = {}
+      %i[video_url poster_url vp9_url].each do |k|
+        nv = params[k].to_s
+        next if nv.blank?
+        ok = nv.start_with?("/uploads/", "//renovation-reviews.storage.googleapis.com/", "https://renovation-reviews.storage.googleapis.com/")
+        media[k] = nv if ok
+      end
+      s.update!(media) if media.any?
+      render json: { ok: true, status: s.status, video_url: s.video_url, poster_url: s.poster_url }
     end
 
     def destroy

@@ -86,3 +86,23 @@ plugins:
     default: 48
     min: 1
     max: 8760
+  # --- Creator Studio: direct <=60s video uploads (group-gated) ---
+  shorts_creator_uploads_enabled:
+    default: true
+    client: true
+  shorts_creator_groups:
+    type: group_list
+    default: ""
+    client: true
+  shorts_creator_max_seconds:
+    default: 60
+    min: 5
+    max: 300
+  shorts_creator_max_mb:
+    default: 100
+    min: 1
+    max: 1024
+  shorts_creator_daily_cap:
+    default: 5
+    min: 1
+    max: 100

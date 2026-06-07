@@ -67,6 +67,8 @@ after_initialize do
     get    "/shorts/:id/comments.json" => "discourse_shorts/shorts#comments_index"
     post   "/shorts/:id/comments"      => "discourse_shorts/shorts#comments_create"
     post   "/shorts/:id/comments.json" => "discourse_shorts/shorts#comments_create"
+    post   "/shorts/creator/submit.json" => "discourse_shorts/creator#submit"
+    get    "/shorts/creator/mine.json"    => "discourse_shorts/creator#mine"
     get    "/shorts/admin/list.json" => "discourse_shorts/admin_shorts#index"
     put    "/shorts/admin/:id"     => "discourse_shorts/admin_shorts#update"
     delete "/shorts/admin/:id"     => "discourse_shorts/admin_shorts#destroy"
