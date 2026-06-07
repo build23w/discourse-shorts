@@ -240,6 +240,7 @@ module DiscourseShorts
       poster = s.poster_url.presence ||
                (s.provider == "youtube" ? "https://i.ytimg.com/vi/#{s.video_id}/hqdefault.jpg" : "#{base}/uploads/default/original/1X/logo.png")
       viewer = "#{base}/?short=#{ERB::Util.url_encode(s.video_id)}&utm_source=lf_short&utm_medium=share"
+      self_url = "#{base}/shorts/v/#{ERB::Util.url_encode(s.video_id)}"
       desc = "Watch this renovation short and join the conversation on home.renovation.reviews"
       e = ->(x) { ERB::Util.html_escape(x.to_s) }
       html = <<~HTML
@@ -248,13 +249,13 @@ module DiscourseShorts
         <meta charset="utf-8">
         <title>#{e.call(title)} — Renovation Shorts</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <link rel="canonical" href="#{e.call(viewer)}">
+        <link rel="canonical" href="#{e.call(self_url)}">
         <meta property="og:type" content="video.other">
         <meta property="og:site_name" content="Home Renovation Reviews">
         <meta property="og:title" content="#{e.call(title)}">
         <meta property="og:description" content="#{e.call(desc)}">
         <meta property="og:image" content="#{e.call(poster)}">
-        <meta property="og:url" content="#{e.call(viewer)}">
+        <meta property="og:url" content="#{e.call(self_url)}">
         #{s.provider == "youtube" ? %(<meta property="og:video" content="https://www.youtube.com/embed/#{e.call(s.video_id)}">
 <meta property="og:video:type" content="text/html">
 <meta property="og:video:width" content="720">
@@ -263,7 +264,6 @@ module DiscourseShorts
         <meta name="twitter:title" content="#{e.call(title)}">
         <meta name="twitter:description" content="#{e.call(desc)}">
         <meta name="twitter:image" content="#{e.call(poster)}">
-        <meta http-equiv="refresh" content="0;url=#{e.call(viewer)}">
         <script>location.replace(#{viewer.to_json});</script>
         </head><body>
         <p><a href="#{e.call(viewer)}">Watch “#{e.call(title)}” on Home Renovation Reviews →</a></p>
