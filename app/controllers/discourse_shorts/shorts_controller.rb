@@ -236,6 +236,16 @@ module DiscourseShorts
       s = Short.find_by(video_id: params[:video_id]) or raise Discourse::NotFound
       raise Discourse::NotFound unless s.status == "approved"
       base = Discourse.base_url
+
+      # HUMANS: instant server-side 302 into the viewer. No JS (Discourse CSP is
+      # script-src 'strict-dynamic' — inline scripts are blocked, so a JS hop
+      # would strand users), and junk tracking params platforms append
+      # (fbclid, gclid, etc.) are dropped because we construct the URL ourselves.
+      # CRAWLERS (facebookexternalhit/Twitterbot/WhatsApp/...) stay on this page
+      # and read the short's own OpenGraph tags.
+      unless CrawlerDetection.crawler?(request.user_agent)
+        return redirect_to "#{base}/?short=#{ERB::Util.url_encode(s.video_id)}&utm_source=lf_short&utm_medium=share"
+      end
       title = (s.title.presence || "Renovation Short").to_s[0, 90]
       poster = s.poster_url.presence ||
                (s.provider == "youtube" ? "https://i.ytimg.com/vi/#{s.video_id}/hqdefault.jpg" : "#{base}/uploads/default/original/1X/logo.png")
@@ -264,12 +274,20 @@ module DiscourseShorts
         <meta name="twitter:title" content="#{e.call(title)}">
         <meta name="twitter:description" content="#{e.call(desc)}">
         <meta name="twitter:image" content="#{e.call(poster)}">
-        <script>location.replace(#{viewer.to_json});</script>
+        <style>
+          body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#0f1624;color:#fff;font-family:system-ui,Segoe UI,Arial,sans-serif}
+          .sp{width:42px;height:42px;border-radius:50%;border:4px solid rgba(255,255,255,.25);border-top-color:#f0820c;animation:r 0.9s linear infinite}
+          @keyframes r{to{transform:rotate(360deg)}}
+          a{color:#f0820c;font-weight:600;text-decoration:none}
+        </style>
         </head><body>
-        <p><a href="#{e.call(viewer)}">Watch “#{e.call(title)}” on Home Renovation Reviews →</a></p>
+        <div class="sp" role="status" aria-label="Loading"></div>
+        <p>Opening “#{e.call(title)}”…</p>
+        <p><a href="#{e.call(viewer)}">Tap here if nothing happens</a></p>
         </body></html>
       HTML
       response.headers["Cache-Control"] = "public, max-age=300"
+      response.headers["Vary"] = "User-Agent"   # response differs for crawlers vs humans
       render html: html.html_safe, content_type: "text/html", layout: false
     end
 
