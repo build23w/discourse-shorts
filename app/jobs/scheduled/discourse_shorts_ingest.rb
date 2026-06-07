@@ -3,10 +3,25 @@ module Jobs
   class DiscourseShortsIngest < ::Jobs::Scheduled
     every 6.hours
 
-    NEW_PER_RUN = 24      # fresh shorts pulled per run
-    MIN_KEEP    = 100     # never let recycling shrink the library below this
-    PRUNE_MAX   = 24      # hard cap on deletions per run (never a mass purge)
-    GRACE_HOURS = 48      # a short must live this long before it can be recycled
+    # v0.3.2: knobs moved to site settings (config/settings.yml) —
+    # shorts_ingest_per_run, shorts_recycle_enabled, shorts_recycle_min_keep,
+    # shorts_recycle_max_per_run, shorts_recycle_grace_hours. Clamped here so
+    # a bad value can never mass-purge the library.
+    def new_per_run
+      (SiteSetting.shorts_ingest_per_run.to_i rescue 24).clamp(0, 200)
+    end
+
+    def min_keep
+      (SiteSetting.shorts_recycle_min_keep.to_i rescue 100).clamp(0, 100_000)
+    end
+
+    def prune_max
+      (SiteSetting.shorts_recycle_max_per_run.to_i rescue 24).clamp(0, 500)
+    end
+
+    def grace_hours
+      (SiteSetting.shorts_recycle_grace_hours.to_i rescue 48).clamp(1, 8760)
+    end
 
     def execute(_args)
       return unless SiteSetting.shorts_enabled && SiteSetting.shorts_ingest_enabled
@@ -15,7 +30,7 @@ module Jobs
       cap   = SiteSetting.shorts_max_library.to_i
       model = ::DiscourseShorts::Short
 
-      recycle!(model, cap) if cap.positive?
+      recycle!(model, cap) if cap.positive? && SiteSetting.shorts_recycle_enabled
       ingest_new!(model)
     end
 
@@ -25,13 +40,13 @@ module Jobs
     # shorts that are genuinely dead (no comments, net likes <= 0). NEVER touches
     # locally uploaded (source="owned"), member submissions, seeded, or manual
     # shorts, never anything people engaged with, caps deletions per run, and
-    # always leaves at least MIN_KEEP in the library.
+    # always leaves at least shorts_recycle_min_keep in the library.
     def recycle!(model, cap)
       approved = model.where(status: "approved").count
-      overflow = approved + NEW_PER_RUN - cap
+      overflow = approved + new_per_run - cap
       return if overflow <= 0
 
-      max_del = [overflow, PRUNE_MAX, approved - MIN_KEEP].min
+      max_del = [overflow, prune_max, approved - min_keep].min
       return if max_del <= 0
 
       # ANY interaction makes a short permanent: a like, dislike, comment, or share
@@ -41,7 +56,7 @@ module Jobs
       ids = model.where(status: "approved", source: "ingest")
                  .where(likes: 0, dislikes: 0, comment_count: 0)
                  .where("COALESCE(shares,0) = 0")
-                 .where("created_at < ?", GRACE_HOURS.hours.ago)
+                 .where("created_at < ?", grace_hours.hours.ago)
                  .order(Arel.sql("views ASC, watch_seconds ASC, created_at ASC"))
                  .limit(max_del).pluck(:id)
       return if ids.empty?
@@ -55,9 +70,9 @@ module Jobs
       terms = SiteSetting.shorts_ingest_terms.to_s.split("|").map(&:strip).reject(&:blank?)
       added = 0
       terms.shuffle.each do |term|
-        break if added >= NEW_PER_RUN
+        break if added >= new_per_run
         ::DiscourseShorts::Youtube.search(term, max: 10).each do |vid|
-          break if added >= NEW_PER_RUN
+          break if added >= new_per_run
           next if vid.blank? || model.exists?(video_id: vid)
           meta = ::DiscourseShorts::Youtube.oembed(vid)
           next if meta.nil?

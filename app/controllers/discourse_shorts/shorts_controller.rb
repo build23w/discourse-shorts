@@ -47,6 +47,19 @@ module DiscourseShorts
         end
       else
         # Anon payload is identical for everyone: let browsers/CDN cache it.
+        # Anons still get a (static) journey line — the lovely-learning rail
+        # should greet logged-out visitors too, at zero per-user cost.
+        if SiteSetting.shorts_journey_enabled
+          journey = {
+            completed: 0,
+            areas_explored: 0,
+            areas_total: Journey::AREAS.keys.length,
+            loved_areas: [],
+            loved_labels: [],
+            next_up: nil,
+            encouragement: "Pick any short — 30 seconds is all it takes to learn your first renovation trick.",
+          }
+        end
         response.headers["Cache-Control"] = "public, max-age=60"
       end
       payload = { shorts: base }

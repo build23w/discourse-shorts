@@ -61,3 +61,28 @@ plugins:
     default: 20
     min: 5
     max: 600
+  # --- recycling/deletion of stale auto-ingested shorts (v0.3.2: configurable) ---
+  # Master switch. When off, nothing is ever deleted; the library grows to
+  # shorts_max_library and ingest simply stops adding once full.
+  shorts_recycle_enabled:
+    default: true
+  # Fresh shorts pulled per 6-hour ingest run.
+  shorts_ingest_per_run:
+    default: 24
+    min: 0
+    max: 200
+  # Recycling never shrinks the library below this many approved shorts.
+  shorts_recycle_min_keep:
+    default: 100
+    min: 0
+    max: 100000
+  # Hard cap on deletions per run -- never a mass purge.
+  shorts_recycle_max_per_run:
+    default: 24
+    min: 0
+    max: 500
+  # A short must live this many hours (untouched) before it can be recycled.
+  shorts_recycle_grace_hours:
+    default: 48
+    min: 1
+    max: 8760

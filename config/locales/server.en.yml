@@ -1,6 +1,11 @@
 en:
   site_settings:
     shorts_enabled: "Enable the discourse-shorts library."
+    shorts_recycle_enabled: "Recycle (delete) stale auto-ingested shorts when the library is over capacity. Only never-engaged, auto-ingested shorts past the grace window are ever deleted — uploads, member submissions and anything with a like/comment/share are permanent. Turn off to never delete anything."
+    shorts_ingest_per_run: "How many fresh shorts the 6-hour ingest job pulls per run."
+    shorts_recycle_min_keep: "Recycling never shrinks the library below this many approved shorts."
+    shorts_recycle_max_per_run: "Hard cap on deletions per recycling run (prevents mass purges)."
+    shorts_recycle_grace_hours: "A short must be at least this many hours old (and untouched) before it can be recycled."
     shorts_allow_member_submissions: "Allow non-staff members to submit shorts (staff can always submit)."
     shorts_min_submit_trust_level: "Minimum trust level a member needs to submit shorts (when member submissions are enabled)."
     shorts_auto_approve_trust_level: "Submissions from users at or above this trust level are auto-approved."
