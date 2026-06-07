@@ -40,6 +40,7 @@ after_initialize do
   load File.expand_path("../app/models/discourse_shorts/reaction.rb", __FILE__)
   load File.expand_path("../app/models/discourse_shorts/progress.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/journey.rb", __FILE__)
+  load File.expand_path("../lib/discourse_shorts/recommender.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/youtube.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/discussions.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/seeder.rb", __FILE__)

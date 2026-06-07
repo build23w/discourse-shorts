@@ -106,3 +106,5 @@ plugins:
     default: 5
     min: 1
     max: 100
+  shorts_recommender_enabled:
+    default: true

@@ -15,9 +15,22 @@ module DiscourseShorts
       # afterward with one cheap pluck -> N concurrent feed loads become 1 heavy
       # query / 60s instead of N. Gentle precedence: owned videos carry a small
       # `priority` nudge so they stay in rotation without locking the top.
-      base = Discourse.cache.fetch("shorts_index_base_v2_#{limit}", expires_in: 60.seconds) do
+      # LINEUP v2 (2026-06-06): pure cumulative-likes ordering froze the lineup —
+      # early winners sat on top forever, new shorts entered buried at ~#400,
+      # never got seen, never earned the engagement that saves them from the
+      # recycler. Now three terms beyond engagement:
+      #   fresh boost (+6 for 72h)   — new arrivals surface near the top
+      #   rotation jitter (0..8)     — deterministic per-6h-bucket shuffle so the
+      #                                lineup reshuffles 4x/day (stable within a
+      #                                bucket = stable for the 60s cache + SWR)
+      # Engagement still matters; it just can't fossilize the order anymore.
+      bucket = Time.zone.now.to_i / 21_600
+      base = Discourse.cache.fetch("shorts_index_base_v3_#{limit}_#{bucket}", expires_in: 60.seconds) do
+        order_sql = "(likes - dislikes + COALESCE(priority,0) " \
+                    "+ CASE WHEN created_at > NOW() - INTERVAL '72 hours' THEN 6 ELSE 0 END " \
+                    "+ (((id::bigint * #{bucket}) % 97) / 97.0 * 8)) DESC, id DESC"
         rows = Short.where(status: "approved")
-                    .order(Arel.sql("(likes - dislikes + COALESCE(priority,0)) DESC, id DESC"))
+                    .order(Arel.sql(order_sql))
                     .limit(limit).to_a
         # v0.3.3: engagement-ranked order let established shorts squat the top
         # forever — weave the newest arrivals (7 days) into every 4th slot of
@@ -61,6 +74,13 @@ module DiscourseShorts
         mine = Reaction.where(user_id: current_user.id, short_id: base.map { |h| h[:id] })
                        .pluck(:short_id, :direction).to_h
         base = base.map { |h| (d = mine[h[:id]]) ? h.merge(my_reaction: d) : h } if mine.any?
+        # PER-USER RECOMMENDER: tag affinity + geo + followed creators rank the
+        # shared pool for THIS user (cached profile, in-memory sort) before the
+        # journey phases curate on top. 5000 concurrent users = 5000 cheap
+        # in-memory sorts over one shared pool query.
+        if SiteSetting.shorts_recommender_enabled
+          base = Recommender.rank(base, current_user)
+        end
         # The lovely learning engine: re-order the rail per learner (love ->
         # growth -> discovery) and attach warm journey microcopy. Pure Ruby
         # over the cached base + two indexed lookups; falls back to the

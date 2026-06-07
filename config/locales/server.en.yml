@@ -21,3 +21,4 @@ en:
     shorts_comments_enabled: "Allow members to comment on shorts (first comment auto-creates a discussion topic)."
     shorts_comment_category_id: "Category where short discussion topics are created (0 = auto-detect the 'shorts' category)."
     shorts_owned_priority: "Gentle ranking boost for LF-produced (owned) videos so they stay in rotation without dominating."
+    shorts_recommender_enabled: "Personalize each member's shorts lineup (liked-tag affinity + location + followed creators) on top of the shared pool."
