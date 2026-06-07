@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 # name: discourse-shorts
 # about: Short-form video library for the community feed. Server-stored YouTube short IDs + LF-produced uploaded videos, with moderation, member submissions, persisted like/dislike + watch metrics, $RENO payouts, a comment->topic system, and scheduled auto-ingest from the YouTube Data API.
-# version: 0.3.2
+# version: 0.3.3
 # authors: LF Builders
 
 enabled_site_setting :shorts_enabled
@@ -60,6 +60,7 @@ after_initialize do
     post   "/shorts/:id/react"     => "discourse_shorts/shorts#react"
     post   "/shorts/:id/watch"     => "discourse_shorts/shorts#watch"
     post   "/shorts/watch_batch.json" => "discourse_shorts/shorts#watch_batch"
+    get    "/shorts/v/:video_id"     => "discourse_shorts/shorts#share_page", constraints: { video_id: %r{[\w\-]+} }, format: false
     post   "/shorts/:id/share"     => "discourse_shorts/shorts#share"
     post   "/shorts/:id/share.json" => "discourse_shorts/shorts#share"
     get    "/shorts/:id/comments"      => "discourse_shorts/shorts#comments_index"

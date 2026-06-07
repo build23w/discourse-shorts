@@ -4,7 +4,8 @@ module DiscourseShorts
     requires_plugin ::DiscourseShorts::PLUGIN_NAME
     before_action :ensure_enabled
     before_action :ensure_logged_in, only: %i[submit react watch watch_batch comments_create]
-    skip_before_action :check_xhr, only: %i[index comments_index]
+    skip_before_action :check_xhr, only: %i[index comments_index share_page]
+    skip_before_action :redirect_to_login_if_required, only: %i[share_page], raise: false
 
     def index
       limit = params[:limit].to_i
@@ -18,6 +19,33 @@ module DiscourseShorts
         rows = Short.where(status: "approved")
                     .order(Arel.sql("(likes - dislikes + COALESCE(priority,0)) DESC, id DESC"))
                     .limit(limit).to_a
+        # v0.3.3: engagement-ranked order let established shorts squat the top
+        # forever — weave the newest arrivals (7 days) into every 4th slot of
+        # the top of the lineup so fresh ingests are actually SEEN.
+        begin
+          fresh_ids = Short.where(status: "approved").where("created_at > ?", 7.days.ago)
+                           .order(id: :desc).limit(12).pluck(:id)
+          if fresh_ids.any?
+            fresh_rows, rest = rows.partition { |s| fresh_ids.include?(s.id) }
+            woven = []
+            fi = 0
+            ri = 0
+            idx = 0
+            while ri < rest.length || fi < fresh_rows.length
+              if fi < fresh_rows.length && idx % 4 == 3 && idx < 48
+                woven << fresh_rows[fi]; fi += 1
+              elsif ri < rest.length
+                woven << rest[ri]; ri += 1
+              else
+                woven << fresh_rows[fi]; fi += 1
+              end
+              idx += 1
+            end
+            rows = woven
+          end
+        rescue StandardError
+          nil
+        end
         owners = ::User.where(id: rows.map(&:submitted_by_id).compact.uniq).index_by(&:id)
         # comment badge truth = the discussion topic's reply count (covers native
         # replies + deletions); one batched pluck per cache rebuild.
@@ -199,6 +227,52 @@ module DiscourseShorts
       render json: { ok: false, error: "Slow down -- try again in #{e.available_in}s." }, status: 429
     end
 
+    # GET /shorts/v/:video_id — server-rendered share page. Link unfurlers
+    # (iMessage/WhatsApp/FB/X crawlers) don't run JS, so /?short=ID gave them
+    # generic homepage metadata. This page carries the short's own OpenGraph +
+    # Twitter Card tags (title, poster image, video) and instantly forwards
+    # human visitors into the on-site viewer.
+    def share_page
+      s = Short.find_by(video_id: params[:video_id]) or raise Discourse::NotFound
+      raise Discourse::NotFound unless s.status == "approved"
+      base = Discourse.base_url
+      title = (s.title.presence || "Renovation Short").to_s[0, 90]
+      poster = s.poster_url.presence ||
+               (s.provider == "youtube" ? "https://i.ytimg.com/vi/#{s.video_id}/hqdefault.jpg" : "#{base}/uploads/default/original/1X/logo.png")
+      viewer = "#{base}/?short=#{ERB::Util.url_encode(s.video_id)}&utm_source=lf_short&utm_medium=share"
+      desc = "Watch this renovation short and join the conversation on home.renovation.reviews"
+      e = ->(x) { ERB::Util.html_escape(x.to_s) }
+      html = <<~HTML
+        <!DOCTYPE html>
+        <html lang="en"><head>
+        <meta charset="utf-8">
+        <title>#{e.call(title)} — Renovation Shorts</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="canonical" href="#{e.call(viewer)}">
+        <meta property="og:type" content="video.other">
+        <meta property="og:site_name" content="Home Renovation Reviews">
+        <meta property="og:title" content="#{e.call(title)}">
+        <meta property="og:description" content="#{e.call(desc)}">
+        <meta property="og:image" content="#{e.call(poster)}">
+        <meta property="og:url" content="#{e.call(viewer)}">
+        #{s.provider == "youtube" ? %(<meta property="og:video" content="https://www.youtube.com/embed/#{e.call(s.video_id)}">
+<meta property="og:video:type" content="text/html">
+<meta property="og:video:width" content="720">
+<meta property="og:video:height" content="1280">) : ""}
+        <meta name="twitter:card" content="summary_large_image">
+        <meta name="twitter:title" content="#{e.call(title)}">
+        <meta name="twitter:description" content="#{e.call(desc)}">
+        <meta name="twitter:image" content="#{e.call(poster)}">
+        <meta http-equiv="refresh" content="0;url=#{e.call(viewer)}">
+        <script>location.replace(#{viewer.to_json});</script>
+        </head><body>
+        <p><a href="#{e.call(viewer)}">Watch “#{e.call(title)}” on Home Renovation Reviews →</a></p>
+        </body></html>
+      HTML
+      response.headers["Cache-Control"] = "public, max-age=300"
+      render html: html.html_safe, content_type: "text/html", layout: false
+    end
+
     private
 
     # Per-user watch attribution — the learner's memory. Completion flips at
@@ -262,7 +336,7 @@ module DiscourseShorts
       {
         id: s.id, video_id: s.video_id, provider: s.provider,
         video_url: s.video_url, upload_ref: s.upload_ref, poster_url: s.poster_url,
-        title: s.title, tags: s.tag_list,
+        title: s.title, tags: s.tag_list, created_at: (s.created_at.to_i rescue nil),
         likes: s.likes, dislikes: s.dislikes, views: s.views, shares: s.try(:shares).to_i, my_reaction: my,
         source: s.source, owned: s.source == "owned", priority: s.priority.to_i,
         comment_count: s.comment_count.to_i,

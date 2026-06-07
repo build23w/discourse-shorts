@@ -131,9 +131,10 @@ module DiscourseShorts
         quality = (h[:likes].to_i - h[:dislikes].to_i + h[:priority].to_i).clamp(0, 50) / 50.0
         rewatch = state[:seen][h[:id]] ? 1.0 : 0.0
         jitter = ((h[:id].to_i * seed) % 97) / 97.0
-        score = 3.0 * love + 2.6 * growth + 1.6 * discovery + 0.8 * quality +
+        fresh = (h[:created_at].to_i > 72.hours.ago.to_i && !state[:seen][h[:id]]) ? 1.0 : 0.0
+        score = 3.0 * love + 2.6 * growth + 1.6 * discovery + 1.2 * fresh + 0.8 * quality +
                 0.5 * jitter - 2.2 * rewatch
-        { h: h, area: area, lvl: lvl, growth: growth, discovery: discovery, score: score }
+        { h: h, area: area, lvl: lvl, growth: growth, discovery: discovery, fresh: fresh, score: score }
       end
 
       ranked = scored.sort_by { |x| -x[:score] }
@@ -144,7 +145,7 @@ module DiscourseShorts
     # Of the first `window` cards, guarantee at least 2 growth and 2
     # discovery items so the rail always teaches, never just echoes.
     def self.ensure_teaching_quota(ranked, window)
-      %i[growth discovery].each_with_index do |kind, k|
+      %i[growth discovery fresh].each_with_index do |kind, k|
         head = ranked.first(window)
         have = head.count { |x| x[kind].to_f > 0 }
         next if have >= 2
