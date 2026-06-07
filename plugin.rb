@@ -46,6 +46,7 @@ after_initialize do
   load File.expand_path("../lib/discourse_shorts/owned_seeder.rb", __FILE__)
   load File.expand_path("../app/controllers/discourse_shorts/shorts_controller.rb", __FILE__)
   load File.expand_path("../app/controllers/discourse_shorts/admin_shorts_controller.rb", __FILE__)
+  load File.expand_path("../app/controllers/discourse_shorts/creator_controller.rb", __FILE__)
   load File.expand_path("../app/jobs/scheduled/discourse_shorts_ingest.rb", __FILE__)
 
   # Routes use explicit .json (bare paths get caught by Discourse's Ember route).
