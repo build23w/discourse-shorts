@@ -214,7 +214,8 @@ module DiscourseShorts
     def share
       # Anonymous shares allowed, but throttled per-IP: shares make a short
       # permanent in the recycler, so an unthrottled endpoint = trivial abuse.
-      RateLimiter.new(nil, "shorts_share_#{request.remote_ip}", 20, 1.hour).performed!
+      ip = (request.get_header("HTTP_CF_CONNECTING_IP").presence || request.remote_ip)  # CF edge ip rotates; use true client
+      RateLimiter.new(nil, "shorts_share_#{ip}", 20, 1.hour).performed!
       s = Short.find_by(id: params[:id]) or raise Discourse::NotFound
       Short.where(id: s.id).update_all("shares = COALESCE(shares,0) + 1")
       render json: { ok: true }
