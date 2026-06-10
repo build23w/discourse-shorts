@@ -69,6 +69,11 @@ module DiscourseShorts
           h
         end
       end
+      # v0.4.0 explicit category filter (chips). Applied per-request to the
+      # shared cached base so the base cache stays viewer-agnostic.
+      cat_counts = base.each_with_object(Hash.new(0)) { |h, m| (m[h[:category]] += 1) if h[:category] }
+      sel_cat = params[:category].to_s.strip
+      base = base.select { |h| h[:category].to_s == sel_cat } if sel_cat.present? && sel_cat != "all"
       journey = nil
       if current_user && base.any?
         mine = Reaction.where(user_id: current_user.id, short_id: base.map { |h| h[:id] })
@@ -112,6 +117,7 @@ module DiscourseShorts
       end
       payload = { shorts: base }
       payload[:journey] = journey if journey
+      payload[:categories] = cat_counts.map { |k, n| { key: k, label: (Journey::AREA_LABELS[k] || k.to_s.tr("-", " ").capitalize), count: n } }.sort_by { |c| -c[:count] }
       render json: payload
     end
 
@@ -319,12 +325,51 @@ module DiscourseShorts
     def record_progress(user_id, short_id, secs, watches = 1)
       return if user_id.to_i <= 0
       row = Progress.find_or_initialize_by(user_id: user_id, short_id: short_id)
+      was_completed = !!row.completed
       row.seconds = row.seconds.to_i + secs.to_i
       row.watches = row.watches.to_i + watches.to_i
       row.completed ||= row.seconds >= [SiteSetting.shorts_complete_seconds.to_i, 5].max
       row.save!
+      if row.completed && !was_completed
+        # journey counters changed -> bust the 5-min per-user cache so the
+        # "X/N skills - Y lessons" widget reflects the new lesson promptly.
+        (::Discourse.cache.delete("shorts_journey_state_v1_#{user_id}") rescue nil)
+        reward_learner_for_lesson(user_id, short_id, row)
+      end
     rescue StandardError => e
       Rails.logger.warn("[discourse-shorts] progress write failed: #{e.class} #{e.message}")
+    end
+
+    # v0.4.0 LEARN-AND-EARN: grant $RENO the instant a learner COMPLETES a short
+    # (first completion only, tracked via rewarded_at), capped at
+    # shorts_lesson_daily_cap rewarded lessons/day. This is the daily mechanic:
+    # log in, finish up to N lessons, earn each day. Reward goes to the LEARNER.
+    def reward_learner_for_lesson(user_id, short_id, row)
+      return unless SiteSetting.shorts_reward_enabled
+      amt = SiteSetting.shorts_lesson_reward_amount.to_i
+      return if amt <= 0
+      return if row.respond_to?(:rewarded_at) && row.rewarded_at.present?  # once per short, ever
+      learner = ::User.find_by(id: user_id)
+      return if learner.nil? || learner.bot?
+      return if learner.trust_level.to_i < SiteSetting.shorts_reward_min_trust_level.to_i
+      return unless defined?(::DiscourseCoinEngine) && ::DiscourseCoinEngine.respond_to?(:credit_score)
+      cap = SiteSetting.shorts_lesson_daily_cap.to_i
+      if cap.positive?
+        since = Time.zone.now.beginning_of_day
+        rewarded_today = Progress.where(user_id: user_id).where("rewarded_at >= ?", since).count
+        return if rewarded_today >= cap
+      end
+      row.update_column(:rewarded_at, Time.zone.now)   # claim BEFORE crediting (race-safe, no double pay)
+      ::DiscourseCoinEngine.credit_score(user_id, Date.today, amt)
+      ::DiscourseCoinEngine.refresh_user_score(user_id) if ::DiscourseCoinEngine.respond_to?(:refresh_user_score)
+      coin = (SiteSetting.coin_engine_coin_name rescue "$RENO")
+      MessageBus.publish("/coin-engine/credits/#{user_id}", {
+        amount: amt, reason: "lesson_reward",
+        label: "+#{amt} #{coin} -- lesson complete!",
+        coin: coin, ref: { kind: "lesson", short_id: short_id }, ts: Time.now.to_i
+      }, user_ids: [user_id])
+    rescue StandardError => e
+      Rails.logger.warn("[discourse-shorts] lesson reward failed: #{e.class} #{e.message}")
     end
 
     def ensure_enabled
@@ -372,10 +417,12 @@ module DiscourseShorts
 
     def serialize_short(s, my = nil, owner = nil)
       owner ||= (s.submitted_by_id ? ::User.find_by(id: s.submitted_by_id) : nil)
+      cat = s.try(:category).presence || (Journey.classify(title: s.title.to_s, tags: Array(s.tag_list)).first rescue "general")
       {
         id: s.id, video_id: s.video_id, provider: s.provider,
         video_url: s.video_url, vp9_url: s.try(:vp9_url), upload_ref: s.upload_ref, poster_url: s.poster_url,
         title: s.title, tags: s.tag_list, created_at: (s.created_at.to_i rescue nil),
+        category: cat, category_label: (Journey::AREA_LABELS[cat] || cat.to_s.tr("-", " ").capitalize),
         likes: s.likes, dislikes: s.dislikes, views: s.views, shares: s.try(:shares).to_i, my_reaction: my,
         source: s.source, owned: s.source == "owned", priority: s.priority.to_i,
         comment_count: s.comment_count.to_i,

@@ -61,6 +61,15 @@ plugins:
     default: 20
     min: 5
     max: 600
+  # --- learn-and-earn: immediate $RENO when a learner COMPLETES a short ---
+  shorts_lesson_reward_amount:
+    default: 5
+    min: 0
+    max: 1000
+  shorts_lesson_daily_cap:
+    default: 5
+    min: 0
+    max: 100
   # --- recycling/deletion of stale auto-ingested shorts (v0.3.2: configurable) ---
   # Master switch. When off, nothing is ever deleted; the library grows to
   # shorts_max_library and ingest simply stops adding once full.

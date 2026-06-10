@@ -16,25 +16,92 @@ module DiscourseShorts
   #     genuinely cool an area down; everything degrades to the global
   #     popularity order for anonymous or brand-new users.
   module Journey
+    # Every residential home-improvement skill we teach. The explicit per-short
+    # `category` column (v0.4.0) is the source of truth; these keyword sets are
+    # the FALLBACK classifier for shorts with no category set. Order matters:
+    # the first area whose keyword appears in title+tags wins, so the more
+    # specific rooms/surfaces are listed before the generic trades.
     AREAS = {
-      "painting"      => %w[paint painting primer roller brush caulk silicone stain],
-      "tiling"        => %w[tile tiling grout backsplash mosaic shower-wall],
-      "flooring"      => %w[floor flooring vinyl laminate hardwood subfloor plank],
-      "drywall"       => %w[drywall mud taping sanding patch joint],
-      "plumbing"      => %w[plumb plumbing pipe pipes drain faucet vanity toilet sink],
-      "electrical"    => %w[electrical wiring outlet switch pendant breaker smart],
-      "carpentry"     => %w[wood carpentry framing frame door trim mantel deck cabinet shelf steel-stud],
-      "concrete"      => %w[concrete cement slab broom driveway],
-      "exterior"      => %w[roof roofing siding eavestrough gutter window fence patio interlock landscap],
-      "waterproofing" => %w[waterproof basement leak moisture sump],
-      "tools"         => %w[tool tools drill saw level measure workbench],
+      # rooms (highest intent)
+      "kitchen"           => %w[kitchen kitchenette range-hood kitchen-island],
+      "bathroom"          => %w[bathroom shower bathtub tub toilet vanity ensuite powder-room],
+      "basement"          => %w[basement basement-finishing egress underpinning cellar],
+      "closets"           => %w[closet shelving organizer pantry built-in wardrobe],
+      "garage"            => %w[garage garage-door opener garage-floor epoxy-garage],
+      # surfaces & finishes
+      "painting"          => %w[paint painting primer roller brush stain varnish wallpaper],
+      "drywall"           => %w[drywall mud taping joint-compound plaster skim-coat patch],
+      "tiling"            => %w[tile tiling grout backsplash mosaic thinset shower-wall],
+      "flooring"          => %w[floor flooring vinyl laminate hardwood subfloor plank underlay floating-floor],
+      "carpet"            => %w[carpet carpeting broadloom stair-runner area-rug],
+      "ceilings"          => %w[ceiling popcorn-ceiling coffered tray-ceiling drop-ceiling],
+      # carpentry & millwork
+      "trim-carpentry"    => %w[trim moulding molding baseboard crown casing wainscot chair-rail],
+      "cabinetry"         => %w[cabinet cabinets cabinet-door shaker soft-close refacing],
+      "countertops"       => %w[countertop counter quartz granite butcher-block epoxy-counter],
+      "framing"           => %w[framing frame stud joist header load-bearing rough-in partition],
+      "doors"             => %w[door doorway prehung threshold pocket-door barn-door lockset],
+      "windows"           => %w[window windowsill glazing window-replacement sill],
+      "staircases"        => %w[stair staircase tread riser banister balustrade newel],
+      # building systems
+      "plumbing"          => %w[plumb plumbing pipe pipes drain faucet sink valve p-trap shutoff],
+      "electrical"        => %w[electrical wiring outlet receptacle switch breaker panel gfci],
+      "lighting"          => %w[light lighting pendant recessed pot-light potlight led chandelier dimmer],
+      "hvac"              => %w[hvac furnace air-conditioning heat-pump ductwork duct thermostat mini-split],
+      "smart-home"        => %w[smart-home automation smart-switch smart-lock zigbee z-wave video-doorbell],
+      "insulation"        => %w[insulation insulate batt spray-foam vapour-barrier vapor-barrier r-value],
+      "ventilation"       => %w[ventilation exhaust-fan bath-fan range-vent hrv erv air-exchange],
+      # exterior envelope
+      "roofing"           => %w[roof roofing shingle shingles flashing roof-vent underlayment],
+      "siding"            => %w[siding cladding stucco vinyl-siding board-and-batten fascia soffit],
+      "gutters"           => %w[gutter eavestrough downspout leader gutter-guard],
+      "exterior-paint"    => %w[exterior-paint deck-stain fence-stain limewash exterior-primer],
+      # outdoor / hardscape / structures
+      "decks"             => %w[deck decking deck-board composite-deck ledger deck-railing],
+      "fencing"           => %w[fence fencing fence-post gate picket chain-link privacy-fence],
+      "hardscaping"       => %w[patio paver pavers interlock flagstone retaining-wall walkway pathway],
+      "concrete"          => %w[concrete cement slab footing rebar broom-finish sidewalk],
+      "masonry"           => %w[brick block stone mortar masonry parging chimney],
+      "driveway"          => %w[driveway asphalt sealcoat resurface aggregate],
+      "landscaping"       => %w[landscape landscaping garden sod mulch planting lawn irrigation grading],
+      "outdoor-structures"=> %w[shed outbuilding pergola gazebo carport greenhouse],
+      # protection / restoration
+      "waterproofing"     => %w[waterproof basement-leak moisture sump weeping-tile dampproof seepage],
+      "foundation"        => %w[foundation foundation-crack settling underpin slab-jacking],
+      "demolition"        => %w[demo demolition tear-out gut-reno salvage],
+      "fireplace"         => %w[fireplace mantel hearth wood-stove gas-insert chimney-flue],
+      "caulking"          => %w[caulk caulking silicone sealant expansion-joint],
+      # fixtures, appliances, finishing
+      "appliances"        => %w[appliance dishwasher fridge refrigerator range-install washer dryer hookup],
+      "window-treatments" => %w[blinds curtains drapes shades shutters valance],
+      "energy"            => %w[energy-efficiency weatherization solar ev-charger draft-proofing air-sealing],
+      # foundational skills
+      "tools"             => %w[tool tools drill saw level tape-measure jigsaw sander multi-tool],
+      "safety"            => %w[safety ppe respirator ladder-safety dust-mask fall-protection],
+      "planning"          => %w[permit budget cost quote estimate design layout code inspection],
     }.freeze
 
     AREA_LABELS = {
-      "painting" => "Painting", "tiling" => "Tiling", "flooring" => "Flooring",
-      "drywall" => "Drywall", "plumbing" => "Plumbing", "electrical" => "Electrical",
-      "carpentry" => "Carpentry", "concrete" => "Concrete", "exterior" => "Exterior",
-      "waterproofing" => "Waterproofing", "tools" => "Tools", "general" => "Home reno",
+      "kitchen" => "Kitchens", "bathroom" => "Bathrooms", "basement" => "Basements",
+      "closets" => "Closets & Storage", "garage" => "Garages",
+      "painting" => "Painting", "drywall" => "Drywall & Plaster", "tiling" => "Tiling",
+      "flooring" => "Flooring", "carpet" => "Carpet", "ceilings" => "Ceilings",
+      "trim-carpentry" => "Trim & Moulding", "cabinetry" => "Cabinetry",
+      "countertops" => "Countertops", "framing" => "Framing", "doors" => "Doors",
+      "windows" => "Windows", "staircases" => "Stairs & Railings",
+      "plumbing" => "Plumbing", "electrical" => "Electrical", "lighting" => "Lighting",
+      "hvac" => "Heating & Cooling", "smart-home" => "Smart Home",
+      "insulation" => "Insulation", "ventilation" => "Ventilation",
+      "roofing" => "Roofing", "siding" => "Siding", "gutters" => "Gutters",
+      "exterior-paint" => "Exterior Finishes", "decks" => "Decks", "fencing" => "Fencing",
+      "hardscaping" => "Patios & Hardscape", "concrete" => "Concrete", "masonry" => "Masonry",
+      "driveway" => "Driveways", "landscaping" => "Landscaping",
+      "outdoor-structures" => "Sheds & Structures", "waterproofing" => "Waterproofing",
+      "foundation" => "Foundations", "demolition" => "Demolition",
+      "fireplace" => "Fireplaces", "caulking" => "Caulking & Sealing",
+      "appliances" => "Appliances", "window-treatments" => "Window Treatments",
+      "energy" => "Energy Efficiency", "tools" => "Tools", "safety" => "Job Safety",
+      "planning" => "Planning & Permits", "general" => "Home Reno",
     }.freeze
 
     LEVEL1 = %w[basic basics beginner intro 101 first starter simple easy start].freeze
