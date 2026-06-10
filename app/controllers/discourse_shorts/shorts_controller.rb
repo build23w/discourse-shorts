@@ -25,7 +25,9 @@ module DiscourseShorts
       #                                bucket = stable for the 60s cache + SWR)
       # Engagement still matters; it just can't fossilize the order anymore.
       bucket = Time.zone.now.to_i / 21_600
-      base = Discourse.cache.fetch("shorts_index_base_v3_#{limit}_#{bucket}", expires_in: 60.seconds) do
+      # v0.5.0: Media.cache_token in the key — flipping cloudflared mode (or its
+      # base URL) must not serve the other mode's media URLs for a cache TTL.
+      base = Discourse.cache.fetch("shorts_index_base_v4_#{limit}_#{bucket}_#{Media.cache_token}", expires_in: 60.seconds) do
         order_sql = "(likes - dislikes + COALESCE(priority,0) " \
                     "+ CASE WHEN created_at > NOW() - INTERVAL '72 hours' THEN 6 ELSE 0 END " \
                     "+ (((id::bigint * #{bucket}) % 97) / 97.0 * 8)) DESC, id DESC"
@@ -274,7 +276,7 @@ module DiscourseShorts
         return redirect_to "#{base}/?short=#{ERB::Util.url_encode(s.video_id)}&utm_source=lf_short&utm_medium=share"
       end
       title = (s.title.presence || "Renovation Short").to_s[0, 90]
-      poster = s.poster_url.presence ||
+      poster = Media.cdn(s.poster_url.presence) ||
                (s.provider == "youtube" ? "https://i.ytimg.com/vi/#{s.video_id}/hqdefault.jpg" : "#{base}/uploads/default/original/1X/logo.png")
       viewer = "#{base}/?short=#{ERB::Util.url_encode(s.video_id)}&utm_source=lf_short&utm_medium=share"
       self_url = "#{base}/shorts/v/#{ERB::Util.url_encode(s.video_id)}"
@@ -418,9 +420,15 @@ module DiscourseShorts
     def serialize_short(s, my = nil, owner = nil)
       owner ||= (s.submitted_by_id ? ::User.find_by(id: s.submitted_by_id) : nil)
       cat = s.try(:category).presence || (Journey.classify(title: s.title.to_s, tags: Array(s.tag_list)).first rescue "general")
-      {
+      # CLOUDFLARED MODE (v0.5.0): media URLs go out CDN-remapped; when a remap
+      # happened the original store URL ships as *_origin so the player can
+      # fall back if the edge object 404s (e.g. creator-upload mirror in flight).
+      v_cdn, v_origin = Media.cdn_pair(s.video_url)
+      vp9_cdn, vp9_origin = Media.cdn_pair(s.try(:vp9_url))
+      p_cdn, p_origin = Media.cdn_pair(s.poster_url)
+      h = {
         id: s.id, video_id: s.video_id, provider: s.provider,
-        video_url: s.video_url, vp9_url: s.try(:vp9_url), upload_ref: s.upload_ref, poster_url: s.poster_url,
+        video_url: v_cdn, vp9_url: vp9_cdn, upload_ref: s.upload_ref, poster_url: p_cdn,
         title: s.title, tags: s.tag_list, created_at: (s.created_at.to_i rescue nil),
         category: cat, category_label: (Journey::AREA_LABELS[cat] || cat.to_s.tr("-", " ").capitalize),
         likes: s.likes, dislikes: s.dislikes, views: s.views, shares: s.try(:shares).to_i, my_reaction: my,
@@ -432,6 +440,10 @@ module DiscourseShorts
           avatar_template: owner.avatar_template, path: "/u/#{owner.username}"
         } : nil
       }
+      h[:video_url_origin] = v_origin if v_origin
+      h[:vp9_url_origin] = vp9_origin if vp9_origin
+      h[:poster_url_origin] = p_origin if p_origin
+      h
     end
   end
 end

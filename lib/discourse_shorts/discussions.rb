@@ -18,7 +18,7 @@ module DiscourseShorts
       if short.provider == "upload" && short.upload_ref.present?
         "![#{short.title}|video](#{short.upload_ref})\n\n"
       elsif short.provider == "upload" && short.video_url.present?
-        "#{short.video_url}\n\n"
+        "#{Media.cdn(short.video_url)}\n\n"
       else
         # YouTube → onebox player
         "https://www.youtube.com/watch?v=#{short.video_id}\n\n"

@@ -23,6 +23,9 @@ module DiscourseShorts
         nv = params[k].to_s
         next if nv.blank?
         ok = nv.start_with?("/uploads/", "//renovation-reviews.storage.googleapis.com/", "https://renovation-reviews.storage.googleapis.com/")
+        # cloudflared mode: the configured media CDN is also one of "our own" hosts
+        cf_base = SiteSetting.shorts_cloudflare_base_url.to_s.chomp("/")
+        ok ||= cf_base.start_with?("https://") && nv.start_with?("#{cf_base}/")
         media[k] = nv if ok
       end
       s.update!(media) if media.any?

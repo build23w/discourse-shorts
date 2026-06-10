@@ -117,3 +117,31 @@ plugins:
     max: 100
   shorts_recommender_enabled:
     default: true
+  # --- CLOUDFLARED MODE: serve shorts media from Cloudflare R2 (v0.5.0) ---
+  # Read-time URL remap: DB keeps store URLs; serializers swap host for
+  # shorts_cloudflare_base_url when the host matches rewrite_hosts. Off = full
+  # instant rollback to the upload store.
+  shorts_cloudflare_enabled:
+    default: false
+    client: true
+  shorts_cloudflare_base_url:
+    default: "https://media.renovation.reviews"
+    client: true
+  shorts_cloudflare_rewrite_hosts:
+    type: list
+    list_type: simple
+    default: "renovation-reviews.storage.googleapis.com"
+  # Mirror new creator uploads (video + poster) into R2 via the S3 API so the
+  # remap covers them. Requires the four s3 settings below.
+  shorts_cloudflare_mirror_uploads:
+    default: true
+  shorts_cloudflare_s3_endpoint:
+    default: ""
+  shorts_cloudflare_s3_bucket:
+    default: "hrr-media"
+  shorts_cloudflare_s3_access_key_id:
+    default: ""
+    secret: true
+  shorts_cloudflare_s3_secret_access_key:
+    default: ""
+    secret: true

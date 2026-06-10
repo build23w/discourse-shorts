@@ -38,6 +38,16 @@ module DiscourseShorts
         status: current_user.staff? ? "approved" : "pending",
         source: "creator"
       )
+      # CLOUDFLARED MODE: mirror the bytes into R2 (async, fire-and-forget) so
+      # the read-time CDN remap covers this new short. On any failure the short
+      # keeps streaming from the upload store via the *_origin fallback.
+      if ::DiscourseShorts::Media.mirror_uploads?
+        ::Jobs.enqueue(
+          :discourse_shorts_mirror_media,
+          upload_id: upload.id,
+          poster_upload_id: poster&.id,
+        )
+      end
       render json: { ok: true, status: s.status, video_id: s.video_id, id: s.id }
     end
 
@@ -46,7 +56,7 @@ module DiscourseShorts
       rows = Short.where(submitted_by_id: current_user.id).order(id: :desc).limit(50)
       render json: { shorts: rows.map { |s| {
         id: s.id, video_id: s.video_id, title: s.title, status: s.status,
-        provider: s.provider, poster_url: s.poster_url, created_at: (s.created_at.to_i rescue nil),
+        provider: s.provider, poster_url: ::DiscourseShorts::Media.cdn(s.poster_url), created_at: (s.created_at.to_i rescue nil),
         views: s.views.to_i, likes: s.likes.to_i, comment_count: s.comment_count.to_i,
         shares: s.try(:shares).to_i
       } } }
