@@ -6,6 +6,8 @@
 
 enabled_site_setting :shorts_enabled
 
+register_asset "stylesheets/shorts-overrides.scss"
+
 after_initialize do
 
   # Keep Short.comment_count in sync with NATIVE topic replies too (not just

@@ -1,0 +1,8 @@
+// The lesson-resume button's teal-to-orange gradient read as a broken color
+// shift; solid brand color instead. The gradient it replaces lives in a DB
+// theme component, and theme CSS loads after plugin CSS — hence !important.
+.lf-skill-continue,
+.lf-skill-continue:hover {
+  background: var(--tertiary) !important;
+  border-color: var(--tertiary) !important;
+}
