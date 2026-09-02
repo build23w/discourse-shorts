@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 # name: discourse-shorts
 # about: Short-form video library for the community feed. Server-stored YouTube short IDs + LF-produced uploaded videos, with moderation, member submissions, persisted like/dislike + watch metrics, $RENO payouts, a comment->topic system, and scheduled auto-ingest from the YouTube Data API.
-# version: 0.8.0
+# version: 0.8.1
 # authors: LF Builders
 
 enabled_site_setting :shorts_enabled
@@ -46,6 +46,7 @@ after_initialize do
   load File.expand_path("../lib/discourse_shorts/recommender.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/youtube.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/discussions.rb", __FILE__)
+  load File.expand_path("../lib/discourse_shorts/crawler_links.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/seeder.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/owned_seeder.rb", __FILE__)
   load File.expand_path("../app/controllers/discourse_shorts/shorts_controller.rb", __FILE__)
@@ -54,6 +55,11 @@ after_initialize do
   load File.expand_path("../app/controllers/discourse_shorts/seo_controller.rb", __FILE__)
   load File.expand_path("../app/jobs/scheduled/discourse_shorts_ingest.rb", __FILE__)
   load File.expand_path("../app/jobs/regular/discourse_shorts_mirror_media.rb", __FILE__)
+
+  # v0.8.1 — internal links from every topic's crawler view to same-trade shorts
+  register_html_builder("server:topic-show-after-posts-crawler") do |ctx|
+    ::DiscourseShorts::CrawlerLinks.html_for(ctx)
+  end
 
   # Routes use explicit .json (bare paths get caught by Discourse's Ember route).
   # Admin routes live under /shorts/admin/* (NOT /admin/plugins/* which the core
