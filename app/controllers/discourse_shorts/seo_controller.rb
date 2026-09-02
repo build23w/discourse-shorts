@@ -1,5 +1,5 @@
 # frozen_string_literal: true
-# v0.7.0 — the indexable face of the shorts library.
+# v0.7.0 → v0.8.0 — the indexable face of the shorts library.
 #
 # Until now the only server-rendered page per short was an OpenGraph stub that
 # 302'd humans into the app and showed crawlers a spinner, and nothing linked to
@@ -45,8 +45,34 @@ module DiscourseShorts
       self_url = "#{base}/shorts/v/#{ERB::Util.url_encode(s.video_id)}"
       viewer = "#{base}/?short=#{ERB::Util.url_encode(s.video_id)}&utm_source=lf_short&utm_medium=landing"
       topic_url = s.topic_id.to_i > 0 ? "#{base}/t/#{s.topic_id}" : nil
-      desc = "#{cat_label} short by #{creator} on Home Renovation Reviews, Canada's home renovation community. " \
-             "Watch, react, and ask the trades who do this work every day."
+      # v0.8.0 — a real description: the creator's own text when there is one,
+      # otherwise assembled from what the short actually is (title, trade, tags,
+      # the first comment on its discussion) instead of one generic sentence
+      # repeated across 400 pages (Garrett, 2026-09-02).
+      own_desc = s.try(:description).to_s.strip
+      first_comment =
+        if s.topic_id.to_i > 0
+          (::Post.where(topic_id: s.topic_id).where("post_number > 1").order(:post_number).limit(1).pick(:raw).to_s.gsub(/\s+/, " ").strip[0, 140] rescue "")
+        else
+          ""
+        end
+      desc =
+        if own_desc.present?
+          "#{own_desc[0, 200]} — #{cat_label} short by #{creator} on Home Renovation Reviews."
+        else
+          bits = ["#{title}: a #{cat_label.downcase} short by #{creator}"]
+          bits << "tagged #{tags.first(4).join(', ')}" if tags.any?
+          bits << "“#{first_comment}”" if first_comment.present?
+          bits.join(", ") + ". Watch it, react, and ask the trades who do this work on Home Renovation Reviews, Canada's home renovation community."
+        end
+      desc = desc[0, 300]
+      keywords = ([cat_label, "renovation short", "home renovation video"] + tags.map(&:to_s)).uniq { |k| k.to_s.downcase }.first(10).join(", ")
+      favicon = (SiteSetting.site_favicon_url.presence rescue nil)
+      touch_icon = (SiteSetting.site_apple_touch_icon_url.presence rescue nil)
+      icon_links = [
+        favicon ? %(<link rel="icon" href="#{e.call(favicon)}">) : "",
+        touch_icon ? %(<link rel="apple-touch-icon" href="#{e.call(touch_icon)}">) : "",
+      ].join
       uploaded = (s.created_at || Time.zone.now).iso8601
 
       related = Short.where(status: "approved").where.not(id: s.id)
@@ -85,7 +111,7 @@ module DiscourseShorts
         thumb = Media.cdn(x.poster_url.presence) || (x.provider == "youtube" ? "https://i.ytimg.com/vi/#{x.video_id}/hqdefault.jpg" : "")
         xcat = x.try(:category).presence || "general"
         {
-          id: x.video_id, title: x.title.to_s[0, 120], poster: thumb,
+          id: x.video_id, title: x.title.to_s[0, 120], desc: x.try(:description).to_s.strip[0, 180], poster: thumb,
           video: x.provider == "upload" ? Media.cdn(x.video_url) : nil,
           yt: x.provider == "youtube" ? x.video_id : nil,
           cat: (Journey::AREA_LABELS[xcat] || xcat.to_s.tr("-", " ").capitalize),
@@ -127,6 +153,7 @@ module DiscourseShorts
             if(it.video){ stage.innerHTML='<video id="v" class="pl" playsinline autoplay muted loop preload="auto" poster="'+esc(it.poster)+'" src="'+esc(it.video)+'"></video>'; var v=document.getElementById('v'); v.muted=!unmuted; v.play().catch(function(){}); v.addEventListener('timeupdate',function(){ if(v.duration) prog.style.width=(100*v.currentTime/v.duration)+'%'; }); v.addEventListener('ended',function(){}); }
             else { stage.innerHTML='<iframe id="yt" class="pl" src="https://www.youtube.com/embed/'+encodeURIComponent(it.yt)+'?playsinline=1&rel=0&autoplay=1&mute='+(unmuted?0:1)+'" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>'; prog.style.width='0'; }
             ttl.textContent=it.title; by.textContent=it.by; cat.textContent=it.cat; likes.textContent=it.likes; cmts.textContent=it.comments;
+            var cap=document.getElementById('cap'); if(cap){ cap.textContent=it.desc||''; cap.hidden=!it.desc; }
             openA.href=appUrl(it); likeA.href=appUrl(it,'like'); cmtA.href=it.topic||appUrl(it,'comment');
             counter.textContent=(i+1)+' / '+PL.length; document.title=it.title+' — Renovation Shorts';
             try{ history.replaceState(null,'',it.url); }catch(e){}
@@ -162,6 +189,8 @@ module DiscourseShorts
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
         <meta name="description" content="#{e.call(desc)}">
         <meta name="theme-color" content="#0b0f17">
+        <meta name="keywords" content="#{e.call(keywords)}">
+        #{icon_links}
         <link rel="canonical" href="#{e.call(self_url)}">
         <meta property="og:type" content="video.other">
         <meta property="og:site_name" content="Home Renovation Reviews">
@@ -194,6 +223,8 @@ module DiscourseShorts
           .meta h1{font-size:17px;margin:0 0 4px;font-weight:800;line-height:1.25}
           .meta .sub{font-size:12.5px;opacity:.9}
           .meta .sub b{font-weight:800}
+          .meta .cap{font-size:12.5px;opacity:.85;margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+          .meta .cap[hidden]{display:none}
           .rail{position:absolute;right:8px;bottom:calc(24px + env(safe-area-inset-bottom,0px));z-index:6;display:flex;flex-direction:column;gap:10px;align-items:center}
           .rail a,.rail button{display:flex;flex-direction:column;align-items:center;justify-content:center;width:58px;height:54px;border:0;background:rgba(0,0,0,.55);color:#fff;text-decoration:none;font-size:20px;line-height:1;cursor:pointer;padding:0}
           .rail b{font-size:10.5px;font-weight:800;margin-top:3px;letter-spacing:.02em}
@@ -235,7 +266,7 @@ module DiscourseShorts
             <a class="browse" href="#{e.call(base)}/watch">Browse all</a>
             <div id="stage">#{player}</div>
             <button id="mute" type="button" aria-label="Sound on/off">🔇</button>
-            <div class="meta"><h1 id="ttl">#{e.call(title)}</h1><div class="sub"><b id="by">#{e.call(creator)}</b> · <span id="cat">#{e.call(cat_label)}</span></div></div>
+            <div class="meta"><h1 id="ttl">#{e.call(title)}</h1><div class="sub"><b id="by">#{e.call(creator)}</b> · <span id="cat">#{e.call(cat_label)}</span></div><div class="cap" id="cap"#{own_desc.present? ? "" : " hidden"}>#{e.call(own_desc[0, 180])}</div></div>
             <div class="rail">
               <a id="like" href="#{e.call(viewer)}&intent=like" title="Like (opens the app)">▲<b id="likes">#{s.likes.to_i}</b></a>
               <a id="cmt" href="#{e.call(topic_url || viewer)}" title="Comments">💬<b id="cmts">#{s.comment_count.to_i}</b></a>
@@ -248,7 +279,7 @@ module DiscourseShorts
           </div>
           <section class="side">
             <p><a class="btn" href="#{e.call(viewer)}">▶ Watch in the Shorts feed</a>#{topic_url ? %(<a class="btn alt" href="#{e.call(topic_url)}">Discussion (#{s.comment_count.to_i})</a>) : ""}</p>
-            <p class="desc">#{e.call(desc)} Swipe or use ↑ ↓ to keep watching.</p>
+            <p class="desc">#{e.call(own_desc.present? ? own_desc : desc)} Swipe or use ↑ ↓ to keep watching.</p>
             <div class="chips">#{tags.map { |t| "<span>#{e.call(t)}</span>" }.join}</div>
             <h2>Up next · more #{e.call(cat_label.downcase)} shorts</h2>
             <div class="rel">#{rel_html}</div>
@@ -281,6 +312,7 @@ module DiscourseShorts
         <!DOCTYPE html>
         <html lang="en"><head>
         <meta charset="utf-8">
+        #{(fav = (SiteSetting.site_favicon_url.presence rescue nil)) ? %(<link rel="icon" href="#{e.call(fav)}">) : ""}
         <title>Renovation Shorts — #{rows.length} short videos by trade | Home Renovation Reviews</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="description" content="Browse #{rows.length} short renovation videos — kitchens, bathrooms, tiling, concrete, roofing and more — from Canadian homeowners and the trades on Home Renovation Reviews.">

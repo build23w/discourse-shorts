@@ -138,6 +138,7 @@ module DiscourseShorts
       s = Short.create!(
         video_id: vid, provider: "youtube",
         title: (params[:title].presence || meta["title"]).to_s[0, 160],
+        description: params[:description].to_s.strip[0, 600].presence,
         tags: Array(params[:tags]).join(",")[0, 255],
         submitted_by_id: current_user.id,
         status: auto ? "approved" : "pending",
@@ -429,7 +430,7 @@ module DiscourseShorts
       h = {
         id: s.id, video_id: s.video_id, provider: s.provider,
         video_url: v_cdn, vp9_url: vp9_cdn, upload_ref: s.upload_ref, poster_url: p_cdn,
-        title: s.title, tags: s.tag_list, created_at: (s.created_at.to_i rescue nil),
+        title: s.title, description: s.try(:description), tags: s.tag_list, created_at: (s.created_at.to_i rescue nil),
         category: cat, category_label: (Journey::AREA_LABELS[cat] || cat.to_s.tr("-", " ").capitalize),
         likes: s.likes, dislikes: s.dislikes, views: s.views, shares: s.try(:shares).to_i, my_reaction: my,
         source: s.source, owned: s.source == "owned", priority: s.priority.to_i,

@@ -41,7 +41,7 @@ module DiscourseShorts
 
     def serialize(s)
       submitter = s.submitted_by_id ? ::User.find_by(id: s.submitted_by_id) : nil
-      { id: s.id, video_id: s.video_id, title: s.title, tags: s.tag_list,
+      { id: s.id, video_id: s.video_id, title: s.title, description: s.try(:description), tags: s.tag_list,
         status: s.status, source: s.source, submitted_by_id: s.submitted_by_id,
         submitted_by: submitter&.username,
         provider: s.provider, video_url: s.video_url, vp9_url: s.try(:vp9_url),

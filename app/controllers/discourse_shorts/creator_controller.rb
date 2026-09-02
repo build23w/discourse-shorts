@@ -33,6 +33,7 @@ module DiscourseShorts
         upload_ref: upload.id.to_s,
         poster_url: poster ? GlobalPath.full_cdn_url(poster.url) : nil,
         title: params[:title].to_s.strip[0, 160].presence || "My short",
+        description: params[:description].to_s.strip[0, 600].presence,
         tags: Array(params[:tags]).join(",")[0, 255],
         submitted_by_id: current_user.id,
         status: auto_approve? ? "approved" : "pending",
@@ -54,6 +55,21 @@ module DiscourseShorts
       render json: { ok: true, status: s.status, video_id: s.video_id, id: s.id }
     end
 
+    # PATCH /shorts/creator/:id.json — v0.8.0: creators edit the title/description/
+    # tags of their OWN shorts (staff: any). Text only — media and status are not
+    # editable here. Approved shorts stay approved: a description is metadata, not
+    # a new video, and the landing page escapes everything it prints.
+    def update
+      s = Short.find_by(id: params[:id]) or raise Discourse::NotFound
+      raise Discourse::InvalidAccess unless current_user.staff? || s.submitted_by_id == current_user.id
+      attrs = {}
+      attrs[:title] = params[:title].to_s.strip[0, 160] if params.key?(:title) && params[:title].to_s.strip.present?
+      attrs[:description] = params[:description].to_s.strip[0, 600].presence if params.key?(:description)
+      attrs[:tags] = Array(params[:tags]).map { |t| t.to_s.strip }.reject(&:blank?).join(",")[0, 255] if params.key?(:tags)
+      s.update!(attrs) if attrs.any?
+      render json: { ok: true, id: s.id, title: s.title, description: s.try(:description), tags: s.tag_list }
+    end
+
     # DELETE /shorts/creator/:id.json — creators manage their OWN library.
     # Row only (reactions/topic untouched, same as AdminShortsController#destroy).
     # Staff may delete any.
@@ -69,7 +85,7 @@ module DiscourseShorts
       ensure_creator!
       rows = Short.where(submitted_by_id: current_user.id).order(id: :desc).limit(50)
       render json: { shorts: rows.map { |s| {
-        id: s.id, video_id: s.video_id, title: s.title, status: s.status,
+        id: s.id, video_id: s.video_id, title: s.title, description: s.try(:description), status: s.status,
         provider: s.provider, poster_url: ::DiscourseShorts::Media.cdn(s.poster_url), created_at: (s.created_at.to_i rescue nil),
         views: s.views.to_i, likes: s.likes.to_i, comment_count: s.comment_count.to_i,
         shares: s.try(:shares).to_i
