@@ -75,25 +75,93 @@ module DiscourseShorts
       ld["embedUrl"] = embed_url if embed_url
       ld["author"] = { "@type" => house ? "Organization" : "Person", "name" => house ? "LF Builders" : (owner&.name.presence || owner&.username || "Community member"), "url" => creator_url }
 
+      # v0.7.1 — feed-style landing: the share link IS a mini shorts feed.
+      # Playlist = this short + related, embedded as JSON; a nonce'd script (CSP
+      # placeholder, substituted by Discourse's middleware) swaps videos in place,
+      # handles swipe/keys/wheel, tap-to-unmute, double-tap heart, auto-advance
+      # and history.replaceState so every swipe is a real /shorts/v/ URL. With
+      # JS blocked the page is still a complete, indexable video page.
+      item = ->(x, own) {
+        thumb = Media.cdn(x.poster_url.presence) || (x.provider == "youtube" ? "https://i.ytimg.com/vi/#{x.video_id}/hqdefault.jpg" : "")
+        xcat = x.try(:category).presence || "general"
+        {
+          id: x.video_id, title: x.title.to_s[0, 120], poster: thumb,
+          video: x.provider == "upload" ? Media.cdn(x.video_url) : nil,
+          yt: x.provider == "youtube" ? x.video_id : nil,
+          cat: (Journey::AREA_LABELS[xcat] || xcat.to_s.tr("-", " ").capitalize),
+          by: own, views: x.views.to_i, likes: x.likes.to_i, comments: x.comment_count.to_i,
+          topic: x.topic_id.to_i > 0 ? "#{base}/t/#{x.topic_id}" : nil,
+          url: "#{base}/shorts/v/#{ERB::Util.url_encode(x.video_id)}"
+        }
+      }
+      playlist = [item.call(s, creator)] + related.map { |r|
+        ro = r.submitted_by_id ? ::User.find_by(id: r.submitted_by_id) : nil
+        item.call(r, (r.source == "owned" || ro&.staff?) ? "LF Builders" : (ro ? "@#{ro.username}" : "the community"))
+      }
+      pl_json = playlist.to_json
+      nonce = (::ContentSecurityPolicy.respond_to?(:nonce_placeholder) ? ::ContentSecurityPolicy.nonce_placeholder(response.headers) : nil) rescue nil
+
       player =
         if video_url
-          %(<video class="pl" controls playsinline preload="metadata" poster="#{e.call(poster)}" src="#{e.call(video_url)}"></video>)
+          %(<video id="v" class="pl" playsinline autoplay muted loop preload="auto" poster="#{e.call(poster)}" src="#{e.call(video_url)}" controls></video>)
         else
-          %(<iframe class="pl" src="#{e.call(embed_url)}" title="#{e.call(title)}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>)
+          %(<iframe id="yt" class="pl" src="#{e.call(embed_url)}&autoplay=1&mute=1" title="#{e.call(title)}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>)
         end
 
-      rel_html = related.map do |r|
+      rel_html = related.map.with_index do |r, i|
         thumb = Media.cdn(r.poster_url.presence) || (r.provider == "youtube" ? "https://i.ytimg.com/vi/#{r.video_id}/hqdefault.jpg" : poster)
-        %(<a class="rc" href="#{e.call("#{base}/shorts/v/#{ERB::Util.url_encode(r.video_id)}")}"><img loading="lazy" src="#{e.call(thumb)}" alt=""><span>#{e.call(r.title.to_s[0, 70])}</span></a>)
+        %(<a class="rc" data-i="#{i + 1}" href="#{e.call("#{base}/shorts/v/#{ERB::Util.url_encode(r.video_id)}")}"><img loading="lazy" src="#{e.call(thumb)}" alt=""><span>#{e.call(r.title.to_s[0, 70])}</span></a>)
       end.join
+
+      script = nonce ? <<~JS : ""
+        <script nonce="#{nonce}">
+        (function(){
+          var PL=JSON.parse(document.getElementById('pl').textContent), i=0, watched=0, unmuted=false;
+          var stage=document.getElementById('stage'), ttl=document.getElementById('ttl'), by=document.getElementById('by'), cat=document.getElementById('cat');
+          var likes=document.getElementById('likes'), cmts=document.getElementById('cmts'), openA=document.getElementById('open'), cmtA=document.getElementById('cmt'), likeA=document.getElementById('like');
+          var prog=document.getElementById('prog'), joinbar=document.getElementById('joinbar'), counter=document.getElementById('ctr');
+          function appUrl(it,intent){ return '/?short='+encodeURIComponent(it.id)+'&utm_source=lf_short&utm_medium=landing'+(intent?'&intent='+intent:''); }
+          function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+          function render(){
+            var it=PL[i];
+            if(it.video){ stage.innerHTML='<video id="v" class="pl" playsinline autoplay muted loop preload="auto" poster="'+esc(it.poster)+'" src="'+esc(it.video)+'"></video>'; var v=document.getElementById('v'); v.muted=!unmuted; v.play().catch(function(){}); v.addEventListener('timeupdate',function(){ if(v.duration) prog.style.width=(100*v.currentTime/v.duration)+'%'; }); v.addEventListener('ended',function(){}); }
+            else { stage.innerHTML='<iframe id="yt" class="pl" src="https://www.youtube.com/embed/'+encodeURIComponent(it.yt)+'?playsinline=1&rel=0&autoplay=1&mute='+(unmuted?0:1)+'" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>'; prog.style.width='0'; }
+            ttl.textContent=it.title; by.textContent=it.by; cat.textContent=it.cat; likes.textContent=it.likes; cmts.textContent=it.comments;
+            openA.href=appUrl(it); likeA.href=appUrl(it,'like'); cmtA.href=it.topic||appUrl(it,'comment');
+            counter.textContent=(i+1)+' / '+PL.length; document.title=it.title+' — Renovation Shorts';
+            try{ history.replaceState(null,'',it.url); }catch(e){}
+            document.querySelectorAll('.rc').forEach(function(a){ a.classList.toggle('on', a.getAttribute('data-i')==String(i)); });
+            var nx=PL[i+1]; if(nx&&nx.poster){ var im=new Image(); im.src=nx.poster; }
+            watched++; if(watched===3 && joinbar){ joinbar.hidden=false; }
+          }
+          function go(n){ if(n<0||n>=PL.length) return; i=n; render(); window.scrollTo(0,0); }
+          document.getElementById('next').addEventListener('click',function(){ go(i+1); });
+          document.getElementById('prev').addEventListener('click',function(){ go(i-1); });
+          document.addEventListener('keydown',function(e){ if(e.key==='ArrowDown'||e.key==='ArrowRight'||e.key==='j'){ e.preventDefault(); go(i+1);} if(e.key==='ArrowUp'||e.key==='ArrowLeft'||e.key==='k'){ e.preventDefault(); go(i-1);} if(e.key==='m'){ toggleMute(); } });
+          var sy=null; stage.addEventListener('touchstart',function(e){ sy=e.touches[0].clientY; },{passive:true});
+          stage.addEventListener('touchend',function(e){ if(sy===null) return; var dy=e.changedTouches[0].clientY-sy; sy=null; if(dy<-60) go(i+1); else if(dy>60) go(i-1); },{passive:true});
+          var wl=0; stage.addEventListener('wheel',function(e){ var t=Date.now(); if(t-wl<700) return; if(Math.abs(e.deltaY)>30){ wl=t; go(i+(e.deltaY>0?1:-1)); } },{passive:true});
+          function toggleMute(){ var v=document.getElementById('v'); if(v){ v.muted=!v.muted; unmuted=!v.muted; mute.textContent=v.muted?'🔇':'🔊'; } }
+          var mute=document.getElementById('mute'); mute.addEventListener('click',toggleMute);
+          var lastTap=0; stage.addEventListener('click',function(e){ var t=Date.now(); var v=document.getElementById('v'); if(t-lastTap<300){ heart(e); lastTap=0; return; } lastTap=t; if(v){ if(!unmuted){ v.muted=false; unmuted=true; mute.textContent='🔊'; return; } v.paused?v.play():v.pause(); } });
+          function heart(e){ var h=document.createElement('div'); h.className='heart'; h.textContent='▲'; h.style.left=(e.clientX-28)+'px'; h.style.top=(e.clientY-28)+'px'; document.body.appendChild(h); setTimeout(function(){ h.remove(); },900); setTimeout(function(){ location.href=likeA.href; },500); }
+          document.querySelectorAll('.rc').forEach(function(a){ a.addEventListener('click',function(e){ var n=parseInt(a.getAttribute('data-i'),10); if(!isNaN(n)&&PL[n]){ e.preventDefault(); go(n); } }); });
+          document.querySelectorAll('.rc').forEach(function(a){ a.classList.toggle('on', a.getAttribute('data-i')==='0'); });
+          counter.textContent='1 / '+PL.length;
+          (function(){ var v=document.getElementById('v'); if(v){ v.removeAttribute('controls'); v.addEventListener('timeupdate',function(){ if(v.duration) prog.style.width=(100*v.currentTime/v.duration)+'%'; }); } })();
+          var nav=document.getElementById('share'); nav.addEventListener('click',function(e){ e.preventDefault(); var it=PL[i]; var d={title:it.title,text:'Watch this renovation short',url:it.url}; if(navigator.share){ navigator.share(d).catch(function(){}); } else if(navigator.clipboard){ navigator.clipboard.writeText(it.url); nav.textContent='Copied'; setTimeout(function(){ nav.innerHTML='⤴<b>Share</b>'; },1500); } });
+        })();
+        </script>
+      JS
 
       html = <<~HTML
         <!DOCTYPE html>
         <html lang="en"><head>
         <meta charset="utf-8">
         <title>#{e.call(title)} — Renovation Shorts | Home Renovation Reviews</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
         <meta name="description" content="#{e.call(desc)}">
+        <meta name="theme-color" content="#0b0f17">
         <link rel="canonical" href="#{e.call(self_url)}">
         <meta property="og:type" content="video.other">
         <meta property="og:site_name" content="Home Renovation Reviews">
@@ -109,48 +177,87 @@ module DiscourseShorts
         <meta name="twitter:image" content="#{e.call(poster)}">
         <script type="application/ld+json">#{ld.to_json}</script>
         <style>
-          :root{color-scheme:light}
-          body{margin:0;background:#f5f6f8;color:#1c2b46;font-family:system-ui,Segoe UI,Arial,sans-serif;line-height:1.4}
-          a{color:#0a7d77}
-          .top{background:#fff;border-bottom:1px solid #e4e6ea;padding:12px 16px;display:flex;gap:14px;align-items:center;font-weight:800}
-          .top a{text-decoration:none;color:#1c2b46}
-          .top .b{margin-left:auto;font-weight:600;font-size:14px}
-          main{max-width:980px;margin:0 auto;padding:18px 16px 40px;display:grid;grid-template-columns:minmax(0,380px) 1fr;gap:22px}
-          @media(max-width:760px){main{grid-template-columns:1fr}}
-          .stage{background:#000;aspect-ratio:9/16;max-height:70vh;display:flex;align-items:center;justify-content:center}
+          :root{color-scheme:dark}
+          *{box-sizing:border-box}
+          html,body{margin:0;background:#0b0f17;color:#fff;font-family:system-ui,Segoe UI,Arial,sans-serif;line-height:1.35}
+          a{color:#fff}
+          .wrap{display:grid;grid-template-columns:minmax(0,1fr);min-height:100dvh}
+          .feed{position:relative;height:100dvh;background:#000;overflow:hidden}
+          #stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer}
           .pl{width:100%;height:100%;border:0;display:block;object-fit:contain;background:#000}
-          h1{font-size:22px;margin:0 0 6px;line-height:1.25}
-          .meta{font-size:14px;color:#556;margin:0 0 14px}
-          .meta a{font-weight:700}
-          .btn{display:inline-block;background:#111;color:#fff;text-decoration:none;font-weight:800;padding:12px 18px;margin:0 8px 8px 0;font-size:14px}
-          .btn.alt{background:#fff;color:#1c2b46;border:1px solid #cfd3d9}
-          .chips span{display:inline-block;background:#fff;border:1px solid #d9dde3;padding:3px 9px;font-size:12px;margin:0 6px 6px 0;text-transform:capitalize}
-          .desc{font-size:15px;margin:14px 0 18px}
-          h2{font-size:16px;margin:26px 0 10px}
-          .rel{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
-          .rc{display:block;text-decoration:none;color:#1c2b46;font-size:12.5px;font-weight:600}
+          .brand{position:absolute;left:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:5;font-size:12px;white-space:nowrap;font-weight:900;letter-spacing:.02em;text-decoration:none;background:rgba(0,0,0,.55);padding:6px 10px;border:1px solid rgba(255,255,255,.18)}
+          .brand .full{display:none}
+          @media(min-width:520px){.brand .full{display:inline}.brand .short{display:none}}
+          .browse{position:absolute;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:5;font-size:12px;font-weight:800;text-decoration:none;background:rgba(0,0,0,.55);padding:6px 10px;border:1px solid rgba(255,255,255,.18)}
+          #mute{position:absolute;left:12px;top:calc(48px + env(safe-area-inset-top,0px));z-index:6;width:40px;height:40px;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:18px;cursor:pointer}
+          .meta{position:absolute;left:12px;right:84px;bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:5;text-shadow:0 1px 8px rgba(0,0,0,.8);pointer-events:none}
+          .meta h1{font-size:17px;margin:0 0 4px;font-weight:800;line-height:1.25}
+          .meta .sub{font-size:12.5px;opacity:.9}
+          .meta .sub b{font-weight:800}
+          .rail{position:absolute;right:8px;bottom:calc(24px + env(safe-area-inset-bottom,0px));z-index:6;display:flex;flex-direction:column;gap:10px;align-items:center}
+          .rail a,.rail button{display:flex;flex-direction:column;align-items:center;justify-content:center;width:58px;height:54px;border:0;background:rgba(0,0,0,.55);color:#fff;text-decoration:none;font-size:20px;line-height:1;cursor:pointer;padding:0}
+          .rail b{font-size:10.5px;font-weight:800;margin-top:3px;letter-spacing:.02em}
+          .rail .app{background:#f0820c}
+          .navbtns{position:absolute;left:8px;top:50%;transform:translateY(-50%);z-index:6;display:none;flex-direction:column;gap:8px}
+          .navbtns button{width:44px;height:44px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.55);color:#fff;font-size:20px;cursor:pointer}
+          #prog{position:absolute;left:0;bottom:0;height:3px;width:0;background:#f0820c;z-index:7;transition:width .25s linear}
+          #ctr{position:absolute;right:12px;top:calc(48px + env(safe-area-inset-top,0px));z-index:5;font-size:11px;font-weight:800;background:rgba(0,0,0,.55);padding:4px 8px}
+          #joinbar{position:absolute;left:12px;right:84px;bottom:calc(120px + env(safe-area-inset-bottom,0px));z-index:6;background:#fff;color:#1c2b46;padding:10px 12px;font-size:13px;display:flex;gap:10px;align-items:center}
+          #joinbar[hidden]{display:none}
+          #joinbar a{background:#f0820c;color:#fff;text-decoration:none;font-weight:900;padding:8px 12px;white-space:nowrap}
+          .heart{position:fixed;z-index:50;font-size:56px;color:#f0820c;pointer-events:none;animation:pop .9s ease-out forwards;text-shadow:0 2px 12px rgba(0,0,0,.6)}
+          @keyframes pop{0%{transform:scale(.4);opacity:0}30%{transform:scale(1.2);opacity:1}100%{transform:scale(1) translateY(-60px);opacity:0}}
+          .side{padding:18px 16px 40px;max-width:980px;margin:0 auto;width:100%}
+          .side h2{font-size:15px;margin:18px 0 10px;color:#cfd6e0}
+          .btn{display:inline-block;background:#f0820c;color:#fff;text-decoration:none;font-weight:800;padding:12px 18px;margin:0 8px 8px 0;font-size:14px}
+          .btn.alt{background:transparent;border:1px solid rgba(255,255,255,.3)}
+          .desc{font-size:14px;color:#cfd6e0;margin:10px 0 14px}
+          .chips span{display:inline-block;border:1px solid rgba(255,255,255,.2);padding:3px 9px;font-size:12px;margin:0 6px 6px 0;text-transform:capitalize;color:#cfd6e0}
+          .rel{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
+          .rc{display:block;text-decoration:none;color:#fff;font-size:12.5px;font-weight:600;border:2px solid transparent}
+          .rc.on{border-color:#f0820c}
           .rc img{width:100%;aspect-ratio:9/16;object-fit:cover;background:#111;display:block;margin-bottom:5px}
-          footer{max-width:980px;margin:0 auto;padding:0 16px 30px;font-size:13px;color:#667}
+          footer{max-width:980px;margin:0 auto;padding:0 16px 30px;font-size:12px;color:#8a94a6}
+          footer a{color:#cfd6e0}
+          @media(min-width:900px){
+            .wrap{grid-template-columns:minmax(0,420px) 1fr;gap:26px;max-width:1180px;margin:0 auto;padding:22px 16px}
+            .feed{height:min(78vh,760px);position:sticky;top:22px}
+            .navbtns{display:flex}
+            .side{padding:6px 0 40px}
+            .meta h1{font-size:19px}
+          }
         </style>
         </head><body>
-        <div class="top"><a href="#{e.call(base)}/">Home Renovation Reviews</a><a class="b" href="#{e.call(base)}/shorts/browse">All shorts</a></div>
-        <main>
-          <div class="stage">#{player}</div>
-          <section>
-            <h1>#{e.call(title)}</h1>
-            <p class="meta">#{e.call(cat_label)} · by <a href="#{e.call(creator_url)}">#{e.call(creator)}</a> · #{s.views.to_i} views · #{s.likes.to_i} likes</p>
-            <p>
-              <a class="btn" href="#{e.call(viewer)}">▶ Watch in the Shorts feed</a>
-              #{topic_url ? %(<a class="btn alt" href="#{e.call(topic_url)}">💬 Discussion (#{s.comment_count.to_i})</a>) : %(<a class="btn alt" href="#{e.call(viewer)}">💬 Comment</a>)}
-            </p>
-            <p class="desc">#{e.call(desc)}</p>
+        <div class="wrap">
+          <div class="feed">
+            <a class="brand" href="#{e.call(base)}/"><span class="short">HRR Shorts</span><span class="full">Home Renovation Reviews</span></a>
+            <span id="ctr">1 / #{playlist.length}</span>
+            <a class="browse" href="#{e.call(base)}/watch">Browse all</a>
+            <div id="stage">#{player}</div>
+            <button id="mute" type="button" aria-label="Sound on/off">🔇</button>
+            <div class="meta"><h1 id="ttl">#{e.call(title)}</h1><div class="sub"><b id="by">#{e.call(creator)}</b> · <span id="cat">#{e.call(cat_label)}</span></div></div>
+            <div class="rail">
+              <a id="like" href="#{e.call(viewer)}&intent=like" title="Like (opens the app)">▲<b id="likes">#{s.likes.to_i}</b></a>
+              <a id="cmt" href="#{e.call(topic_url || viewer)}" title="Comments">💬<b id="cmts">#{s.comment_count.to_i}</b></a>
+              <a id="share" href="#{e.call(self_url)}" title="Share">⤴<b>Share</b></a>
+              <a id="open" class="app" href="#{e.call(viewer)}" title="Open in the app">▶<b>App</b></a>
+            </div>
+            <div class="navbtns"><button id="prev" type="button" aria-label="Previous">↑</button><button id="next" type="button" aria-label="Next">↓</button></div>
+            <div id="joinbar" hidden><span>Enjoying these? <b>Join free</b> to like, comment and post your own.</span><a href="#{e.call(base)}/signup?utm_source=lf_short&utm_medium=landing">Join</a></div>
+            <div id="prog"></div>
+          </div>
+          <section class="side">
+            <p><a class="btn" href="#{e.call(viewer)}">▶ Watch in the Shorts feed</a>#{topic_url ? %(<a class="btn alt" href="#{e.call(topic_url)}">Discussion (#{s.comment_count.to_i})</a>) : ""}</p>
+            <p class="desc">#{e.call(desc)} Swipe or use ↑ ↓ to keep watching.</p>
             <div class="chips">#{tags.map { |t| "<span>#{e.call(t)}</span>" }.join}</div>
-            <h2>More #{e.call(cat_label.downcase)} shorts</h2>
+            <h2>Up next · more #{e.call(cat_label.downcase)} shorts</h2>
             <div class="rel">#{rel_html}</div>
-            <p style="margin-top:18px"><a href="#{e.call(base)}/watch">Browse every short by trade →</a></p>
+            <p style="margin-top:18px"><a href="#{e.call(base)}/watch" style="color:#f0820c;font-weight:800">Browse every short by trade →</a></p>
           </section>
-        </main>
+        </div>
         <footer>Short-form renovation videos from Canadian homeowners and trades. Free account · <a href="#{e.call(base)}/signup">join to upload your own</a>.</footer>
+        <script type="application/json" id="pl">#{pl_json}</script>
+        #{script}
         </body></html>
       HTML
       response.headers["Cache-Control"] = "public, max-age=300"
