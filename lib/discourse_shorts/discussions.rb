@@ -60,9 +60,17 @@ module DiscourseShorts
       end
       cid = category_id
       owner = (short.submitted_by_id && ::User.find_by(id: short.submitted_by_id)) || ::Discourse.system_user
+      # v0.8.1: the creator's description (when there is one) and a link to the
+      # short's own page make this a real topic instead of a boilerplate stub —
+      # it is what crawlers and the topic-list excerpt see.
+      desc = short.try(:description).to_s.strip
+      cat_key = short.try(:category).presence || "general"
+      cat_label = Journey::AREA_LABELS[cat_key] || cat_key.to_s.tr("-", " ").capitalize
       raw = embed_raw(short) +
             credit_raw(short) +
-            "Watch the short and join the conversation 👇\n\n" \
+            (desc.present? ? "#{desc}\n\n" : "") +
+            "Watch the short and join the conversation 👇 " \
+            "More #{cat_label.downcase} shorts: #{Discourse.base_url}/shorts/v/#{ERB::Util.url_encode(short.video_id)}\n\n" \
             "*(This topic was created automatically from a community short.)*"
       pc = ::PostCreator.new(
         owner,
