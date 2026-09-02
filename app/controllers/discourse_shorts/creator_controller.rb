@@ -35,9 +35,12 @@ module DiscourseShorts
         title: params[:title].to_s.strip[0, 160].presence || "My short",
         tags: Array(params[:tags]).join(",")[0, 255],
         submitted_by_id: current_user.id,
-        status: current_user.staff? ? "approved" : "pending",
+        status: auto_approve? ? "approved" : "pending",
         source: "creator"
       )
+      # v0.6.0 creator ladder: a pending upload pings the moderators (one PM per
+      # upload, from system) so the review queue never sits unseen.
+      notify_moderators(s) if s.status == "pending"
       # CLOUDFLARED MODE: mirror the bytes into R2 (async, fire-and-forget) so
       # the read-time CDN remap covers this new short. On any failure the short
       # keeps streaming from the upload store via the *_origin fallback.
@@ -49,6 +52,17 @@ module DiscourseShorts
         )
       end
       render json: { ok: true, status: s.status, video_id: s.video_id, id: s.id }
+    end
+
+    # DELETE /shorts/creator/:id.json — creators manage their OWN library.
+    # Row only (reactions/topic untouched, same as AdminShortsController#destroy).
+    # Staff may delete any.
+    def destroy
+      s = Short.find_by(id: params[:id])
+      raise Discourse::NotFound if s.nil?
+      raise Discourse::InvalidAccess unless current_user.staff? || s.submitted_by_id == current_user.id
+      s.destroy!
+      render json: { ok: true }
     end
 
     def mine
@@ -63,6 +77,36 @@ module DiscourseShorts
     end
 
     private
+
+    # v0.6.0 creator ladder: uploads by members at or above
+    # shorts_auto_approve_trust_level go live instantly (same rule the YouTube
+    # link submissions already follow); everyone else lands in the review queue.
+    def auto_approve?
+      return true if current_user.staff?
+      current_user.trust_level >= SiteSetting.shorts_auto_approve_trust_level.to_i
+    end
+
+    def notify_moderators(s)
+      title = "Short awaiting review: #{s.title.to_s[0, 60]}"
+      raw = <<~MD
+        @#{current_user.username} (trust level #{current_user.trust_level}) uploaded a short that needs a look.
+
+        **#{s.title}**
+        #{s.video_url}
+
+        Open the feed and tap **🛡 Review** in the Shorts rail to approve or reject it.
+      MD
+      ::PostCreator.new(
+        ::Discourse.system_user,
+        title: title,
+        raw: raw,
+        archetype: ::Archetype.private_message,
+        target_group_names: ["moderators"],
+        skip_validations: true,
+      ).create
+    rescue StandardError => e
+      Rails.logger.warn("discourse-shorts: moderator notify failed: #{e.class}: #{e.message}")
+    end
 
     def ensure_creator!
       return if current_user.staff?
