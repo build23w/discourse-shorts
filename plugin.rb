@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 # name: discourse-shorts
 # about: Short-form video library for the community feed. Server-stored YouTube short IDs + LF-produced uploaded videos, with moderation, member submissions, persisted like/dislike + watch metrics, $RENO payouts, a comment->topic system, and scheduled auto-ingest from the YouTube Data API.
-# version: 0.6.0
+# version: 0.7.0
 # authors: LF Builders
 
 enabled_site_setting :shorts_enabled
@@ -51,6 +51,7 @@ after_initialize do
   load File.expand_path("../app/controllers/discourse_shorts/shorts_controller.rb", __FILE__)
   load File.expand_path("../app/controllers/discourse_shorts/admin_shorts_controller.rb", __FILE__)
   load File.expand_path("../app/controllers/discourse_shorts/creator_controller.rb", __FILE__)
+  load File.expand_path("../app/controllers/discourse_shorts/seo_controller.rb", __FILE__)
   load File.expand_path("../app/jobs/scheduled/discourse_shorts_ingest.rb", __FILE__)
   load File.expand_path("../app/jobs/regular/discourse_shorts_mirror_media.rb", __FILE__)
 
@@ -66,7 +67,12 @@ after_initialize do
     post   "/shorts/:id/react"     => "discourse_shorts/shorts#react"
     post   "/shorts/:id/watch"     => "discourse_shorts/shorts#watch"
     post   "/shorts/watch_batch.json" => "discourse_shorts/shorts#watch_batch"
-    get    "/shorts/v/:video_id"     => "discourse_shorts/shorts#share_page", constraints: { video_id: %r{[\w\-]+} }, format: false
+    # v0.7.0: the landing page is the same for humans and crawlers (no 302, no
+    # UA branching) — a real, indexable page per short + a browse index + a
+    # video sitemap. share_page stays defined for reference but is unrouted.
+    get    "/shorts/v/:video_id"     => "discourse_shorts/seo#landing", constraints: { video_id: %r{[\w\-]+} }, format: false
+    get    "/shorts/browse"          => "discourse_shorts/seo#browse", format: false
+    get    "/shorts/sitemap.xml"     => "discourse_shorts/seo#sitemap", format: false
     post   "/shorts/:id/share"     => "discourse_shorts/shorts#share"
     post   "/shorts/:id/share.json" => "discourse_shorts/shorts#share"
     get    "/shorts/:id/comments"      => "discourse_shorts/shorts#comments_index"
