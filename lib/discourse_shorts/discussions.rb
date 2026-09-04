@@ -90,21 +90,31 @@ module DiscourseShorts
       post.topic_id
     end
 
-    def add_comment(short, user, raw)
-      tid = ensure_topic!(short)
-      return nil unless tid
-      pc = ::PostCreator.new(user, topic_id: tid, raw: raw.to_s.strip)
+    def add_comment(short, user, guardian, raw)
+      topic = short.topic_id.present? ? ::Topic.find_by(id: short.topic_id, deleted_at: nil) : nil
+      unless topic
+        category = ::Category.find_by(id: category_id)
+        raise Discourse::NotFound unless category && guardian.can_see_category?(category)
+
+        tid = ensure_topic!(short)
+        return nil unless tid
+        topic = ::Topic.find_by(id: tid, deleted_at: nil)
+        return nil unless topic
+      end
+      guardian.ensure_can_see!(topic)
+      pc = ::PostCreator.new(user, topic_id: topic.id, raw: raw.to_s.strip)
       post = pc.create
       return { error: pc.errors.full_messages.join(", ") } if pc.errors.any?
       DiscourseShorts::Short.where(id: short.id).update_all("comment_count = comment_count + 1")
-      serialize_post(post, ::Topic.find_by(id: tid))
+      serialize_post(post, topic)
     end
 
-    def list(short, limit = 20)
+    def list(short, guardian, limit = 20)
       return { comments: [], topic_id: nil, topic_url: nil, count: 0 } if short.topic_id.blank?
       topic = ::Topic.find_by(id: short.topic_id, deleted_at: nil)
       return { comments: [], topic_id: nil, topic_url: nil, count: 0 } unless topic
-      posts = ::Post.where(topic_id: topic.id, deleted_at: nil)
+      guardian.ensure_can_see!(topic)
+      posts = ::Post.secured(guardian).where(topic_id: topic.id, deleted_at: nil)
                     .where("post_number > 1")
                     .where("COALESCE(hidden,false) = false")
                     .order(post_number: :desc).limit(limit).to_a.reverse

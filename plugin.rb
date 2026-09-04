@@ -40,6 +40,7 @@ after_initialize do
   # files -- that fights Zeitwerk and silently aborts the rest of after_initialize.
   load File.expand_path("../app/models/discourse_shorts/short.rb", __FILE__)
   load File.expand_path("../app/models/discourse_shorts/reaction.rb", __FILE__)
+  load File.expand_path("../app/models/discourse_shorts/reaction_reward_claim.rb", __FILE__)
   load File.expand_path("../app/models/discourse_shorts/progress.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/media.rb", __FILE__)
   load File.expand_path("../lib/discourse_shorts/journey.rb", __FILE__)
