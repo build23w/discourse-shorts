@@ -149,7 +149,7 @@ module DiscourseShorts
 
     def react
       RateLimiter.new(current_user, "shorts_react", 60, 1.hour).performed!
-      s = Short.find_by(id: params[:id]) or raise Discourse::NotFound
+      s = Short.find_by(id: params[:id], status: "approved") or raise Discourse::NotFound
       dir = params[:dir].to_s
       r = Reaction.find_or_initialize_by(short_id: s.id, user_id: current_user.id)
       was = r.direction
@@ -181,7 +181,8 @@ module DiscourseShorts
     end
 
     def watch
-      s = Short.find_by(id: params[:id]) or raise Discourse::NotFound
+      RateLimiter.new(current_user, "shorts_watch", 120, 1.hour).performed!
+      s = Short.find_by(id: params[:id], status: "approved") or raise Discourse::NotFound
       secs = params[:seconds].to_i
       secs = 0 if secs.negative? || secs > 3600
       Short.where(id: s.id).update_all(["views = views + 1, watch_seconds = watch_seconds + ?", secs])
@@ -209,11 +210,13 @@ module DiscourseShorts
         a[:v] += 1
         a[:s] += secs
       end
+      approved_ids = Short.where(id: agg.keys, status: "approved").pluck(:id).to_set
       agg.each do |id, a|
+        next unless approved_ids.include?(id)
         Short.where(id: id).update_all(["views = views + ?, watch_seconds = watch_seconds + ?", a[:v], a[:s]])
         record_progress(current_user.id, id, a[:s], a[:v])
       end
-      render json: { ok: true, n: agg.size }
+      render json: { ok: true, n: approved_ids.size }
     rescue RateLimiter::LimitExceeded
       render json: { ok: false }, status: 429
     end
@@ -235,21 +238,21 @@ module DiscourseShorts
     # GET /shorts/:id/comments.json
     def comments_index
       raise Discourse::NotFound unless SiteSetting.shorts_comments_enabled
-      s = Short.find_by(id: params[:id]) or raise Discourse::NotFound
+      s = Short.find_by(id: params[:id], status: "approved") or raise Discourse::NotFound
       limit = params[:limit].to_i
       limit = 20 if limit <= 0 || limit > 50
-      render json: Discussions.list(s, limit)
+      render json: Discussions.list(s, guardian, limit)
     end
 
     # POST /shorts/:id/comments.json { raw }
     def comments_create
       raise Discourse::NotFound unless SiteSetting.shorts_comments_enabled
-      s = Short.find_by(id: params[:id]) or raise Discourse::NotFound
+      s = Short.find_by(id: params[:id], status: "approved") or raise Discourse::NotFound
       raw = params[:raw].to_s.strip
       raise Discourse::InvalidParameters.new(:raw) if raw.length < 2
       return render(json: { ok: false, error: "Comments are capped at 2000 characters." }, status: 422) if raw.length > 2000
       RateLimiter.new(current_user, "shorts_comment", 12, 1.hour).performed!
-      result = Discussions.add_comment(s, current_user, raw)
+      result = Discussions.add_comment(s, current_user, guardian, raw)
       raise Discourse::InvalidParameters.new(:raw) if result.nil?
       return render(json: { ok: false, error: result[:error] }, status: 422) if result[:error]
       render json: { ok: true, comment: result, topic_id: s.reload.topic_id }
@@ -351,19 +354,31 @@ module DiscourseShorts
       return unless SiteSetting.shorts_reward_enabled
       amt = SiteSetting.shorts_lesson_reward_amount.to_i
       return if amt <= 0
-      return if row.respond_to?(:rewarded_at) && row.rewarded_at.present?  # once per short, ever
       learner = ::User.find_by(id: user_id)
       return if learner.nil? || learner.bot?
       return if learner.trust_level.to_i < SiteSetting.shorts_reward_min_trust_level.to_i
       return unless defined?(::DiscourseCoinEngine) && ::DiscourseCoinEngine.respond_to?(:credit_score)
-      cap = SiteSetting.shorts_lesson_daily_cap.to_i
-      if cap.positive?
-        since = Time.zone.now.beginning_of_day
-        rewarded_today = Progress.where(user_id: user_id).where("rewarded_at >= ?", since).count
-        return if rewarded_today >= cap
+      awarded = false
+      rewarded_at = Time.zone.now
+      reward_day = rewarded_at.to_date
+      since = rewarded_at.beginning_of_day
+      Progress.transaction do
+        advisory_lock!("shorts-lesson-reward:#{user_id}:#{reward_day}")
+        locked_row = Progress.lock.find(row.id)
+        return if locked_row.rewarded_at.present?
+
+        cap = SiteSetting.shorts_lesson_daily_cap.to_i
+        if cap.positive?
+          rewarded_today = Progress.where(user_id: user_id).where("rewarded_at >= ?", since).count
+          return if rewarded_today >= cap
+        end
+
+        ::DiscourseCoinEngine.credit_score(user_id, reward_day, amt)
+        locked_row.update!(rewarded_at: rewarded_at)
+        awarded = true
       end
-      row.update_column(:rewarded_at, Time.zone.now)   # claim BEFORE crediting (race-safe, no double pay)
-      ::DiscourseCoinEngine.credit_score(user_id, Date.today, amt)
+      return unless awarded
+
       ::DiscourseCoinEngine.refresh_user_score(user_id) if ::DiscourseCoinEngine.respond_to?(:refresh_user_score)
       coin = (SiteSetting.coin_engine_coin_name rescue "$RENO")
       MessageBus.publish("/coin-engine/credits/#{user_id}", {
@@ -398,17 +413,38 @@ module DiscourseShorts
       return if current_user.trust_level.to_i < SiteSetting.shorts_reward_min_trust_level.to_i
       return unless defined?(::DiscourseCoinEngine) && ::DiscourseCoinEngine.respond_to?(:credit_score)
 
-      cap_short  = SiteSetting.shorts_reward_daily_cap_per_short.to_i
-      cap_author = SiteSetting.shorts_reward_daily_cap_per_author.to_i
-      since = Time.zone.now.beginning_of_day
-      short_paid  = Reaction.where(short_id: short.id, rewarded: true).where("updated_at >= ?", since).count * amt
-      author_paid = Reaction.joins("INNER JOIN discourse_shorts ds ON ds.id = discourse_shorts_reactions.short_id")
-                            .where("ds.submitted_by_id = ?", author_id)
-                            .where(rewarded: true).where("discourse_shorts_reactions.updated_at >= ?", since).count * amt
-      return unless (short_paid + amt <= cap_short) && (author_paid + amt <= cap_author)
+      awarded = false
+      rewarded_at = Time.zone.now
+      reward_day = rewarded_at.to_date
+      since = rewarded_at.beginning_of_day
+      ReactionRewardClaim.transaction do
+        [
+          "shorts-like-author:#{author_id}:#{reward_day}",
+          "shorts-like-short:#{short.id}:#{reward_day}",
+          "shorts-like-voter:#{short.id}:#{current_user.id}",
+        ].sort.each { |key| advisory_lock!(key) }
 
-      reaction.update_column(:rewarded, true)
-      ::DiscourseCoinEngine.credit_score(author_id, Date.today, amt)
+        return if ReactionRewardClaim.exists?(short_id: short.id, voter_user_id: current_user.id)
+
+        cap_short = SiteSetting.shorts_reward_daily_cap_per_short.to_i
+        cap_author = SiteSetting.shorts_reward_daily_cap_per_author.to_i
+        short_paid = ReactionRewardClaim.where(short_id: short.id).where("rewarded_at >= ?", since).sum(:amount)
+        author_paid = ReactionRewardClaim.where(author_user_id: author_id).where("rewarded_at >= ?", since).sum(:amount)
+        return unless (short_paid + amt <= cap_short) && (author_paid + amt <= cap_author)
+
+        ReactionRewardClaim.create!(
+          short_id: short.id,
+          voter_user_id: current_user.id,
+          author_user_id: author_id,
+          amount: amt,
+          rewarded_at: rewarded_at,
+        )
+        ::DiscourseCoinEngine.credit_score(author_id, reward_day, amt)
+        reaction.update_column(:rewarded, true) if reaction.persisted?
+        awarded = true
+      end
+      return unless awarded
+
       ::DiscourseCoinEngine.refresh_user_score(author_id) if ::DiscourseCoinEngine.respond_to?(:refresh_user_score)
       coin = (SiteSetting.coin_engine_coin_name rescue "$RENO")
       MessageBus.publish("/coin-engine/credits/#{author_id}", {
@@ -416,6 +452,13 @@ module DiscourseShorts
         label: "+#{amt} #{coin} -- your short was liked",
         coin: coin, ref: { kind: "short_like", short_id: short.id }, ts: Time.now.to_i
       }, user_ids: [author_id])
+    rescue ActiveRecord::RecordNotUnique
+      nil
+    end
+
+    def advisory_lock!(key)
+      connection = ActiveRecord::Base.connection
+      connection.select_value("SELECT pg_advisory_xact_lock(hashtext(#{connection.quote(key)}))")
     end
 
     def serialize_short(s, my = nil, owner = nil)
