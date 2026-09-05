@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 # name: discourse-shorts
 # about: Short-form video library for the community feed. Server-stored YouTube short IDs + LF-produced uploaded videos, with moderation, member submissions, persisted like/dislike + watch metrics, $RENO payouts, a comment->topic system, and scheduled auto-ingest from the YouTube Data API.
-# version: 0.8.1
+# version: 0.8.2
 # authors: LF Builders
 
 enabled_site_setting :shorts_enabled
@@ -56,6 +56,7 @@ after_initialize do
   load File.expand_path("../app/controllers/discourse_shorts/seo_controller.rb", __FILE__)
   load File.expand_path("../app/jobs/scheduled/discourse_shorts_ingest.rb", __FILE__)
   load File.expand_path("../app/jobs/regular/discourse_shorts_mirror_media.rb", __FILE__)
+  load File.expand_path("../app/jobs/scheduled/discourse_shorts_backfill_descriptions.rb", __FILE__)
 
   # v0.8.1 — internal links from every topic's crawler view to same-trade shorts
   register_html_builder("server:topic-show-after-posts-crawler") do |ctx|
