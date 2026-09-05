@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 # name: discourse-shorts
 # about: Short-form video library for the community feed. Server-stored YouTube short IDs + LF-produced uploaded videos, with moderation, member submissions, persisted like/dislike + watch metrics, $RENO payouts, a comment->topic system, and scheduled auto-ingest from the YouTube Data API.
-# version: 0.8.2
+# version: 0.8.3
 # authors: LF Builders
 
 enabled_site_setting :shorts_enabled
@@ -9,6 +9,16 @@ enabled_site_setting :shorts_enabled
 register_asset "stylesheets/shorts-overrides.scss"
 
 after_initialize do
+
+  # The container build strips the core `chat` plugin (hrr-infra CF_REMOVE_PLUGINS),
+  # but discourse-gamification's ChatMessageCreated scorable reads
+  # SiteSetting.chat_enabled unguarded, so Jobs::UpdateScoresForToday and
+  # Jobs::UpdateScoresForTenDays raised NoMethodError on every run and leaderboard
+  # scores stopped recomputing (seen in /logs on 2026-09-05, failing since chat was
+  # removed). Answer "chat is off" until chat is back or upstream guards the call.
+  unless ::SiteSetting.respond_to?(:chat_enabled)
+    ::SiteSetting.define_singleton_method(:chat_enabled) { false }
+  end
 
   # Keep Short.comment_count in sync with NATIVE topic replies too (not just
   # overlay-posted comments). Badge accuracy + recycler permanence both depend
