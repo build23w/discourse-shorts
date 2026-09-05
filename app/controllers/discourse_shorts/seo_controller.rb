@@ -52,7 +52,16 @@ module DiscourseShorts
       own_desc = s.try(:description).to_s.strip
       first_comment =
         if s.topic_id.to_i > 0
-          (::Post.where(topic_id: s.topic_id).where("post_number > 1").order(:post_number).limit(1).pick(:raw).to_s.gsub(/\s+/, " ").strip[0, 140] rescue "")
+          # v0.8.2: only a comment worth quoting — ≥ 30 chars, ≥ 6 distinct words,
+          # not "great work!great work!great work!"
+          (begin
+            c = ::Post.where(topic_id: s.topic_id).where("post_number > 1").order(:post_number).limit(3).pluck(:raw)
+              .map { |r| r.to_s.gsub(/\s+/, " ").strip }
+              .find { |r| r.length >= 30 && r.downcase.scan(/[a-z']+/).uniq.length >= 6 && r.scan(/(.{6,}?)\1\1/).empty? }
+            c.to_s[0, 140]
+          rescue StandardError
+            ""
+          end)
         else
           ""
         end
