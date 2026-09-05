@@ -71,15 +71,21 @@ module Jobs
       added = 0
       terms.shuffle.each do |term|
         break if added >= new_per_run
-        ::DiscourseShorts::Youtube.search(term, max: 10).each do |vid|
+        found = ::DiscourseShorts::Youtube.search(term, max: 10)
+        # v0.8.2: one videos.list call per term gives real descriptions for the
+        # landing pages (the search result only carries a truncated one).
+        details = ::DiscourseShorts::Youtube.details(found.reject { |v| model.exists?(video_id: v) })
+        found.each do |vid|
           break if added >= new_per_run
           next if vid.blank? || model.exists?(video_id: vid)
           meta = ::DiscourseShorts::Youtube.oembed(vid)
           next if meta.nil?
           begin
+            dt = details[vid] || {}
             model.create!(
               video_id: vid, provider: "youtube",
               title: meta["title"].to_s[0, 160],
+              description: ::DiscourseShorts::Youtube.clean_description(dt["description"]).presence,
               tags: term.gsub(/\s+/, "-"),
               status: "approved", source: "ingest"
             )
