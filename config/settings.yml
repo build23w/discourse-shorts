@@ -145,3 +145,119 @@ plugins:
   shorts_cloudflare_s3_secret_access_key:
     default: ""
     secret: true
+  # --- HRR desk (v0.9.0): the content + community automations that used to run
+  # as Cowork scheduled tasks, now Sidekiq jobs in this container. All AI jobs are
+  # gated on hrr_desk_enabled + a Cloudflare API token with Workers AI access.
+  hrr_desk_enabled:
+    default: false
+  hrr_desk_ai_account:
+    default: "06813938735349e66d4d070a13279a69"
+  hrr_desk_ai_token:
+    default: ""
+    secret: true
+  hrr_desk_ai_model:
+    default: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+  hrr_desk_max_ai_calls_per_day:
+    default: 60
+    min: 0
+    max: 2000
+  hrr_desk_poster:
+    default: "BuildersLTD"
+  hrr_desk_house_users:
+    type: list
+    list_type: simple
+    default: "system|discobot|BuildersLTD|Gary_From_LFBuilders|Review_Dev|gary23w|fraud_detect|Blue|anon73865502"
+  hrr_desk_skip_categories:
+    type: list
+    list_type: simple
+    default: "423|3|7|410|420|350|351|355"
+  hrr_desk_topic_categories:
+    type: list
+    list_type: simple
+    default: "405|68|411|418|95|97|98|99|85|79|80|83|419|72|88|74|69"
+  hrr_desk_promo_category_id:
+    default: 7
+  hrr_desk_staff_category_id:
+    default: 3
+  hrr_desk_faq_post_id:
+    default: 4653
+  hrr_desk_log_topic_id:
+    default: 0
+  hrr_desk_indexnow_key:
+    default: "656dc80207d49281f78ce0e53f72a8fe"
+  hrr_desk_daily_topic_enabled:
+    default: true
+  hrr_desk_daily_topic_hour_utc:
+    default: 13
+    min: 0
+    max: 23
+  hrr_desk_answer_enabled:
+    default: true
+  hrr_desk_answer_max_per_run:
+    default: 3
+    min: 0
+    max: 10
+  hrr_desk_refresh_enabled:
+    default: true
+  hrr_desk_refresh_weekdays:
+    type: list
+    list_type: simple
+    default: "2|5"
+  hrr_desk_refresh_hour_utc:
+    default: 15
+    min: 0
+    max: 23
+  hrr_desk_weekly_report_enabled:
+    default: true
+  # Shirt Lab carousel feed + weekly ideas
+  hrr_shirt_feed_enabled:
+    default: true
+  hrr_shirt_lab_url:
+    default: "https://shirtlab.lol"
+  hrr_shirt_ideas_enabled:
+    default: true
+  hrr_shirt_ideas_topic_id:
+    default: 48343
+  # Discord bridge
+  hrr_discord_feed_enabled:
+    default: false
+  hrr_discord_webhook_new_topics:
+    default: ""
+    secret: true
+  hrr_discord_webhook_jobs:
+    default: ""
+    secret: true
+  hrr_discord_webhook_reviews:
+    default: ""
+    secret: true
+  hrr_discord_job_categories:
+    type: list
+    list_type: simple
+    default: "74|75|76"
+  hrr_discord_review_categories:
+    type: list
+    list_type: simple
+    default: "400"
+  hrr_discord_feed_skip_categories:
+    type: list
+    list_type: simple
+    default: "423|3"
+  hrr_discord_bot_token:
+    default: ""
+    secret: true
+  hrr_discord_guild_id:
+    default: "1378699444421132298"
+  hrr_discord_ask_channel_id:
+    default: "1544077845901353021"
+  hrr_discord_port_enabled:
+    default: false
+  hrr_discord_port_category_id:
+    default: 405
+  hrr_discord_roles_enabled:
+    default: false
+  hrr_discord_link_topic_id:
+    default: 48335
+  hrr_discord_insider_top_n:
+    default: 25
+    min: 1
+    max: 1000
