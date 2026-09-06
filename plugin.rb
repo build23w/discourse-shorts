@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 # name: discourse-shorts
 # about: Short-form video library for the community feed. Server-stored YouTube short IDs + LF-produced uploaded videos, with moderation, member submissions, persisted like/dislike + watch metrics, $RENO payouts, a comment->topic system, and scheduled auto-ingest from the YouTube Data API.
-# version: 0.8.3
+# version: 0.9.0
 # authors: LF Builders
 
 enabled_site_setting :shorts_enabled
@@ -68,6 +68,49 @@ after_initialize do
   load File.expand_path("../app/jobs/regular/discourse_shorts_mirror_media.rb", __FILE__)
   load File.expand_path("../app/jobs/scheduled/discourse_shorts_backfill_descriptions.rb", __FILE__)
 
+  # v0.9.0 — the HRR desk: the content + Discord + Shirt Lab automations that ran as
+  # Cowork scheduled tasks until 2026-09-06, now Sidekiq jobs here. Each file is
+  # loaded inside its own rescue so a bad line can never take the shorts library
+  # (or the forum boot) down with it; a failed load just means that job is absent.
+  %w[
+    lib/discourse_shorts/desk/ai.rb
+    lib/discourse_shorts/desk/http.rb
+    lib/discourse_shorts/desk/sources.rb
+    lib/discourse_shorts/desk/forum.rb
+    lib/discourse_shorts/desk/writer.rb
+    lib/discourse_shorts/desk/discord.rb
+    lib/discourse_shorts/desk/shirt_lab.rb
+    lib/discourse_shorts/desk/growth.rb
+    app/controllers/discourse_shorts/shirt_feed_controller.rb
+    app/jobs/scheduled/hrr_desk_daily_topic.rb
+    app/jobs/scheduled/hrr_desk_answer.rb
+    app/jobs/scheduled/hrr_desk_refresh.rb
+    app/jobs/scheduled/hrr_shirt_feed.rb
+    app/jobs/scheduled/hrr_shirt_ideas.rb
+    app/jobs/scheduled/hrr_discord_feed_catchup.rb
+    app/jobs/regular/hrr_discord_feed_topic.rb
+    app/jobs/scheduled/hrr_discord_port.rb
+    app/jobs/scheduled/hrr_discord_roles.rb
+    app/jobs/scheduled/hrr_weekly_report.rb
+  ].each do |rel|
+    begin
+      load File.expand_path("../#{rel}", __FILE__)
+    rescue ScriptError, StandardError => e
+      Rails.logger.warn("[discourse-shorts] desk load skipped #{rel}: #{e.class} #{e.message}")
+    end
+  end
+
+  # New topics -> Discord (routed by category), async, a few seconds after creation.
+  on(:topic_created) do |topic, _opts, _user|
+    begin
+      if SiteSetting.hrr_discord_feed_enabled && topic && defined?(::Jobs::HrrDiscordFeedTopic)
+        ::Jobs.enqueue_in(20.seconds, :hrr_discord_feed_topic, topic_id: topic.id)
+      end
+    rescue StandardError => e
+      Rails.logger.warn("[discourse-shorts] discord feed enqueue failed: #{e.message}")
+    end
+  end
+
   # v0.8.1 — internal links from every topic's crawler view to same-trade shorts
   register_html_builder("server:topic-show-after-posts-crawler") do |ctx|
     ::DiscourseShorts::CrawlerLinks.html_for(ctx)
@@ -105,6 +148,7 @@ after_initialize do
     delete "/shorts/creator/:id"          => "discourse_shorts/creator#destroy"
     delete "/shorts/creator/:id.json"     => "discourse_shorts/creator#destroy"
     get    "/shorts/admin/list.json" => "discourse_shorts/admin_shorts#index"
+    get    "/shorts/shirt-feed.json" => "discourse_shorts/shirt_feed#show"
     put    "/shorts/admin/:id"     => "discourse_shorts/admin_shorts#update"
     delete "/shorts/admin/:id"     => "discourse_shorts/admin_shorts#destroy"
   end
