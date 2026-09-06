@@ -31,6 +31,15 @@ module DiscourseShorts
         [tag[0, 24], name[0, 60]]
       end
 
+      # Skip placeholders someone published while testing ("test" / one-word titles / no copy).
+      def self.sellable?(m)
+        title = m["title"].to_s.strip
+        desc = m["description"].to_s.strip
+        return false if title.length < 12 || desc.length < 40
+        return false if title =~ /\A(test|testing|draft|sample|untitled)\b/i || desc =~ /\A(test|testing)\b/i
+        true
+      end
+
       def self.marketing_share_ids
         ids = []
         code, raw = Http.get("#{lab}/sitemap-marketing.xml", timeout: 20)
@@ -58,6 +67,7 @@ module DiscourseShorts
         marketing_share_ids.first(40).each do |sid|
           m = Http.get_json("#{lab}/api/shares/#{sid}", timeout: 20)
           next unless m.is_a?(Hash) && m["visibility"] == "marketing"
+          next unless sellable?(m)
           tag, name = split_title(m["title"])
           price = prices[(m["product"] || {})["id"]]
           items << { "id" => sid, "title" => name, "tag" => tag, "price" => (price ? format("from US$%.2f", price) : ""), "created" => m["createdAt"].to_s }
